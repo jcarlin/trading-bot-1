@@ -1,0 +1,46 @@
+# Trading Bot v0.1 - Default Configuration
+
+# Exchange settings
+exchange:
+  name: binance              # Exchange ID (ccxt-compatible)
+  sandbox: true              # Use testnet/sandbox mode
+  api_key: ""                # Set via env var EXCHANGE_API_KEY
+  api_secret: ""             # Set via env var EXCHANGE_API_SECRET
+
+# Trading pair
+symbol: BTC/USDT
+timeframe: 1h                # OHLCV bar timeframe
+
+# Strategy settings
+strategy:
+  name: sma_crossover
+  params:
+    fast_period: 20
+    slow_period: 50
+    stop_loss_pct: 0.02       # 2% stop loss
+    take_profit_pct: 0.05     # 5% take profit
+
+# Risk management
+risk:
+  position_sizing: percent_equity
+  max_position_pct: 0.95      # Max 95% of equity per trade
+  max_drawdown_pct: 0.20      # Stop trading at 20% drawdown
+  commission_pct: 0.001       # 0.1% commission per trade
+
+# Backtest settings
+backtest:
+  initial_capital: 10000.0
+  start_date: "2024-01-01"
+  end_date: "2025-01-01"
+  data_file: ""               # Optional: path to CSV file (otherwise fetched via ccxt)
+
+# Paper trading settings
+paper:
+  initial_capital: 10000.0
+  poll_interval_seconds: 60   # How often to check for new bars
+  log_trades: true
+
+# Logging
+logging:
+  level: INFO
+  file: trading.log
