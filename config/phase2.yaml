@@ -1,0 +1,158 @@
+# Trading Bot Phase 2 - Self-Evaluation Loop
+
+# Primary exchange: Hyperliquid
+exchange:
+  primary: hyperliquid
+  hyperliquid:
+    testnet: true
+    account_address: "${HL_ACCOUNT_ADDRESS}"
+    private_key: "${HL_PRIVATE_KEY}"
+    rate_limit_rpm: 1200
+  fallback: ccxt
+  ccxt:
+    name: binance
+    sandbox: true
+    api_key: "${EXCHANGE_API_KEY}"
+    api_secret: "${EXCHANGE_API_SECRET}"
+
+# Trading symbols
+symbols:
+  - BTC/USDC
+
+# Strategy runner config
+strategy_runner:
+  enabled: true
+  strategy: funding_rate_arb
+  symbol: BTC/USDC
+  tick_interval_s: 60
+  funding_lookback_hours: 72
+  candle_lookback: 100
+  candle_timeframe: 1h
+  log_hold_every_n: 10
+
+# Strategy parameters
+strategies:
+  funding_rate_arb:
+    entry_threshold: 0.0001
+    exit_threshold: 0.00005
+    max_hold_periods: 24
+    position_size_pct: 0.03
+    min_open_interest: 1000000
+    cooldown_periods: 2
+
+# Execution risk controls (hard limits)
+execution_risk:
+  max_position_pct_per_asset: 0.05
+  max_portfolio_exposure_pct: 1.50
+  max_strategy_drawdown_pct: 0.05
+  max_portfolio_drawdown_pct: 0.15
+  max_single_trade_loss_pct: 0.01
+  min_cash_reserve_pct: 0.20
+
+# Risk settings
+risk:
+  position_sizing: percent_equity
+  max_position_pct: 0.03
+  max_drawdown_pct: 0.20
+  commission_pct: 0.001
+
+# Performance tracking
+performance:
+  update_interval_s: 300
+  windows: [1, 4, 24, 168, 720]
+
+# =====================================================================
+# Phase 2: Self-Evaluation Loop
+# =====================================================================
+
+# Evaluation scheduler intervals (seconds)
+evaluation:
+  enabled: true
+  hourly_interval: 3600
+  daily_interval: 86400
+  weekly_interval: 604800
+  monthly_interval: 2592000
+
+# Strategy health scoring
+health_scoring:
+  weights:
+    sharpe: 0.25
+    sortino: 0.15
+    max_drawdown: 0.20
+    win_rate: 0.15
+    profit_factor: 0.15
+    calmar: 0.10
+  pause_threshold: 20
+  drawdown_pause_threshold: 5.0
+
+# Market regime classification
+regime_classification:
+  sma_fast_period: 20
+  sma_slow_period: 50
+  atr_period: 14
+  volatility_threshold: 2.0
+
+# Backtest comparison
+backtest_comparison:
+  enabled: true
+  lookback_hours: 168
+  decay_pause_threshold: 50.0
+
+# OODA orchestrator
+orchestrator:
+  symbol: BTC/USDC
+  strategy_name: funding_rate_arb
+  decay_pause_threshold: 50.0
+  health_pause_threshold: 20
+
+# Data ingestion settings
+ingestion:
+  orderbook:
+    enabled: true
+    snapshot_interval_s: 5
+    depth_levels: 5
+  trades:
+    enabled: true
+  funding:
+    enabled: true
+    poll_interval_s: 60
+  candles:
+    enabled: true
+    timeframes:
+      - 1m
+      - 5m
+      - 15m
+      - 1h
+      - 4h
+    backfill_on_start: true
+
+# Storage configuration
+storage:
+  timescaledb:
+    host: "${POSTGRES_HOST:-localhost}"
+    port: 5432
+    dbname: "${POSTGRES_DB:-trading}"
+    user: "${POSTGRES_USER:-trading}"
+    password: "${POSTGRES_PASSWORD:-trading}"
+  redis:
+    host: "${REDIS_HOST:-localhost}"
+    port: 6379
+    db: 0
+    password: "${REDIS_PASSWORD:-}"
+
+# Monitoring
+monitoring:
+  metrics_port: 8001
+  strategy_metrics_port: 8004
+  health_check_interval_s: 30
+
+# Reconciliation
+reconciliation:
+  interval_s: 30
+  auto_correct: false
+
+# Logging
+logging:
+  level: INFO
+  file: strategy_runner.log
+  format: json

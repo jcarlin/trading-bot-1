@@ -22,6 +22,20 @@ from prometheus_client import start_http_server
 from core.config import Config
 from core.logging_setup import setup_logging
 
+# Phase 2 imports (optional — graceful if not available)
+try:
+    from analysis.market_regime import MarketRegimeClassifier
+    from metrics.health_scorer import StrategyHealthScorer
+    from metrics.signal_quality import SignalQualityAssessor
+    from metrics.execution_quality import ExecutionQualityTracker
+    from strategy.manager import StrategyManager
+    from reporting.report_generator import ReportGenerator
+    from orchestration.ooda import OODAOrchestrator
+    from orchestration.scheduler import EvaluationScheduler
+    PHASE2_AVAILABLE = True
+except ImportError:
+    PHASE2_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 RECONCILE_INTERVAL_S = 30
@@ -208,6 +222,69 @@ async def run(config: Config) -> None:
     # Performance tracker
     tracker = StrategyPerformanceTracker(timescale_store, strategy_name)
 
+    # Phase 2: Self-Evaluation Loop (optional)
+    scheduler = None
+    if PHASE2_AVAILABLE and config.get("evaluation.enabled", False):
+        logger.info("Phase 2 evaluation loop enabled")
+
+        regime_classifier = MarketRegimeClassifier(
+            config.get_section("regime_classification"))
+
+        health_scorer = StrategyHealthScorer(
+            tracker, config.get_section("health_scoring.weights"))
+
+        signal_assessor = SignalQualityAssessor(
+            timescale_store, strategy_name,
+            config.get("strategy_runner.symbol", "BTC/USDC"))
+
+        execution_tracker = ExecutionQualityTracker(
+            timescale_store, strategy_name)
+
+        strategy_manager_instance = StrategyManager(
+            execution_engine=engine,
+            timescale=timescale_store,
+            redis_store=redis_store,
+            config=config,
+            decision_logger=decision_logger,
+        )
+
+        # Register current strategy with manager
+        strategy_manager_instance._strategies[strategy_name] = {
+            "strategy": strategy,
+            "runner": runner,
+            "status": "active",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        report_gen = ReportGenerator(
+            tracker, health_scorer, timescale_store, strategy_name)
+
+        # Backtest comparator (optional)
+        backtest_comp = None
+        if config.get("backtest_comparison.enabled", False):
+            from analysis.backtest_comparator import BacktestLiveComparator
+            backtest_comp = BacktestLiveComparator(
+                strategy, timescale_store, redis_store,
+                strategy_name,
+                config.get("strategy_runner.symbol", "BTC/USDC"))
+
+        orchestrator = OODAOrchestrator(
+            strategy_manager=strategy_manager_instance,
+            health_scorer=health_scorer,
+            regime_classifier=regime_classifier,
+            timescale=timescale_store,
+            redis_store=redis_store,
+            config=config.get_section("orchestrator"),
+            backtest_comparator=backtest_comp,
+            signal_assessor=signal_assessor,
+            execution_tracker=execution_tracker,
+            report_generator=report_gen,
+        )
+
+        scheduler = EvaluationScheduler(
+            orchestrator, config.get_section("evaluation"))
+        logger.info("Phase 2 evaluation scheduler initialised")
+
     # Graceful shutdown
     stop_event = asyncio.Event()
 
@@ -227,8 +304,14 @@ async def run(config: Config) -> None:
         asyncio.create_task(performance_update_loop(tracker, config, stop_event)),
     ]
 
-    logger.info("Strategy service running: %s on %s",
-                 strategy_name, config.get("strategy_runner.symbol"))
+    # Phase 2: Add evaluation scheduler
+    if scheduler is not None:
+        tasks.append(asyncio.create_task(scheduler.run(stop_event)))
+        logger.info("Phase 2 evaluation scheduler started")
+
+    logger.info("Strategy service running: %s on %s (phase2=%s)",
+                 strategy_name, config.get("strategy_runner.symbol"),
+                 scheduler is not None)
 
     try:
         await stop_event.wait()

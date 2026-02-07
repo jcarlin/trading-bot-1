@@ -347,6 +347,111 @@ class TimescaleStore:
         return self._query(sql, (start, end))
 
     # ------------------------------------------------------------------
+    # Market regime (stored in system_events)
+    # ------------------------------------------------------------------
+
+    def insert_market_regime(self, symbol: str, timeframe: str, regime: str,
+                             confidence: float, indicators: dict,
+                             timestamp: datetime) -> None:
+        """Store a market regime classification as a system event."""
+        self.insert_system_event({
+            "time": timestamp,
+            "event_type": "market_regime",
+            "severity": "info",
+            "component": "regime_classifier",
+            "message": f"{symbol} {timeframe}: {regime} (conf={confidence:.2f})",
+            "details": {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "regime": regime,
+                "confidence": confidence,
+                "indicators": indicators,
+            },
+        })
+
+    def query_market_regimes(self, symbol: str, start: datetime,
+                             end: datetime) -> list[dict]:
+        """Query market regime classifications from system events."""
+        sql = """
+            SELECT time, details FROM system_events
+            WHERE event_type = 'market_regime'
+              AND time >= %s AND time <= %s
+            ORDER BY time ASC
+        """
+        rows = self._query(sql, (start, end))
+        results = []
+        for row in rows:
+            details = row.get("details", {})
+            if isinstance(details, str):
+                import json
+                details = json.loads(details)
+            if details.get("symbol") == symbol:
+                results.append({
+                    "time": row["time"],
+                    **details,
+                })
+        return results
+
+    # ------------------------------------------------------------------
+    # Health scores (stored in system_events)
+    # ------------------------------------------------------------------
+
+    def insert_health_score(self, strategy_name: str, score: float,
+                            grade: str, components: dict,
+                            timestamp: datetime) -> None:
+        """Store a strategy health score as a system event."""
+        self.insert_system_event({
+            "time": timestamp,
+            "event_type": "health_score",
+            "severity": "info",
+            "component": "health_scorer",
+            "message": f"{strategy_name}: score={score:.1f} grade={grade}",
+            "details": {
+                "strategy_name": strategy_name,
+                "score": score,
+                "grade": grade,
+                "components": components,
+            },
+        })
+
+    def query_health_scores(self, strategy_name: str, start: datetime,
+                            end: datetime) -> list[dict]:
+        """Query strategy health scores from system events."""
+        sql = """
+            SELECT time, details FROM system_events
+            WHERE event_type = 'health_score'
+              AND time >= %s AND time <= %s
+            ORDER BY time ASC
+        """
+        rows = self._query(sql, (start, end))
+        results = []
+        for row in rows:
+            details = row.get("details", {})
+            if isinstance(details, str):
+                import json
+                details = json.loads(details)
+            if details.get("strategy_name") == strategy_name:
+                results.append({
+                    "time": row["time"],
+                    **details,
+                })
+        return results
+
+    # ------------------------------------------------------------------
+    # Decision queries
+    # ------------------------------------------------------------------
+
+    def query_decisions(self, strategy_name: str, start: datetime,
+                        end: datetime) -> list[dict]:
+        """Query decision log entries for a strategy."""
+        sql = """
+            SELECT * FROM decision_log
+            WHERE strategy = %s AND time >= %s AND time <= %s
+            ORDER BY time ASC
+        """
+        return self._query(sql, (strategy_name, start, end))
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 

@@ -189,3 +189,38 @@ strategy_signal_count = Counter(
     'Strategy signals generated',
     ['strategy_name', 'signal_type'],
 )
+
+# ---------------------------------------------------------------------------
+# Evaluation & Self-Assessment (Phase 2)
+# ---------------------------------------------------------------------------
+
+strategy_health_score = Gauge(
+    'strategy_health_score',
+    'Strategy health score (0-100)',
+    ['strategy_name'],
+)
+
+market_regime_indicator = Gauge(
+    'market_regime_indicator',
+    'Market regime numeric indicator (1=trending_up, 2=trending_down, 3=ranging, 4=volatile)',
+    ['symbol'],
+)
+
+backtest_live_decay_pct = Gauge(
+    'backtest_live_decay_pct',
+    'Backtest vs live performance decay percentage',
+    ['strategy_name'],
+)
+
+signal_accuracy_pct = Gauge(
+    'signal_accuracy_pct',
+    'Signal accuracy percentage',
+    ['strategy_name'],
+)
+
+evaluation_cycle_duration_seconds = Histogram(
+    'evaluation_cycle_duration_seconds',
+    'Time spent on evaluation cycles',
+    ['checkpoint_type'],
+    buckets=[0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0],
+)

@@ -273,6 +273,72 @@ class TestTimescaleStore(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["strategy_name"], "funding_rate_arb")
 
+    def test_insert_market_regime(self):
+        self.store.insert_market_regime(
+            "BTC/USDC", "1h", "trending_up", 0.85,
+            {"sma_fast": 100.0, "sma_slow": 98.0},
+            datetime(2024, 1, 1))
+        self.mock_cursor.execute.assert_called_once()
+        sql = self.mock_cursor.execute.call_args[0][0]
+        self.assertIn("INSERT INTO system_events", sql)
+
+    def test_query_market_regimes(self):
+        mock_dict_cursor = MagicMock()
+        mock_dict_cursor.fetchall.return_value = [
+            {"time": datetime(2024, 1, 1),
+             "details": {"symbol": "BTC/USDC", "regime": "trending_up",
+                          "confidence": 0.85, "timeframe": "1h",
+                          "indicators": {}}},
+        ]
+        mock_dict_cursor.__enter__ = MagicMock(return_value=mock_dict_cursor)
+        mock_dict_cursor.__exit__ = MagicMock(return_value=False)
+        self.mock_conn.cursor.return_value = mock_dict_cursor
+
+        results = self.store.query_market_regimes(
+            "BTC/USDC", datetime(2024, 1, 1), datetime(2024, 1, 2))
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["regime"], "trending_up")
+
+    def test_insert_health_score(self):
+        self.store.insert_health_score(
+            "funding_rate_arb", 75.0, "B",
+            {"sharpe": 80.0, "sortino": 70.0},
+            datetime(2024, 1, 1))
+        self.mock_cursor.execute.assert_called_once()
+        sql = self.mock_cursor.execute.call_args[0][0]
+        self.assertIn("INSERT INTO system_events", sql)
+
+    def test_query_health_scores(self):
+        mock_dict_cursor = MagicMock()
+        mock_dict_cursor.fetchall.return_value = [
+            {"time": datetime(2024, 1, 1),
+             "details": {"strategy_name": "funding_rate_arb",
+                          "score": 75.0, "grade": "B",
+                          "components": {}}},
+        ]
+        mock_dict_cursor.__enter__ = MagicMock(return_value=mock_dict_cursor)
+        mock_dict_cursor.__exit__ = MagicMock(return_value=False)
+        self.mock_conn.cursor.return_value = mock_dict_cursor
+
+        results = self.store.query_health_scores(
+            "funding_rate_arb", datetime(2024, 1, 1), datetime(2024, 1, 2))
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["score"], 75.0)
+
+    def test_query_decisions(self):
+        mock_dict_cursor = MagicMock()
+        mock_dict_cursor.fetchall.return_value = [
+            {"time": datetime(2024, 1, 1), "decision_type": "signal_generated",
+             "strategy": "funding_rate_arb", "confidence": 0.8},
+        ]
+        mock_dict_cursor.__enter__ = MagicMock(return_value=mock_dict_cursor)
+        mock_dict_cursor.__exit__ = MagicMock(return_value=False)
+        self.mock_conn.cursor.return_value = mock_dict_cursor
+
+        results = self.store.query_decisions(
+            "funding_rate_arb", datetime(2024, 1, 1), datetime(2024, 1, 2))
+        self.assertEqual(len(results), 1)
+
     def test_close(self):
         self.store.close()
         self.mock_pool.closeall.assert_called_once()
@@ -529,6 +595,56 @@ class TestRedisStore(unittest.TestCase):
     def test_get_funding_returns_none(self):
         self.mock_redis.hgetall.return_value = {}
         result = self.store.get_funding("BTC-USD")
+        self.assertIsNone(result)
+
+    # -- Market regime -------------------------------------------------
+
+    def test_set_market_regime(self):
+        self.store.set_market_regime(
+            "BTC/USDC", "trending_up", 0.85,
+            "2024-01-01T00:00:00Z")
+        self.mock_redis.hset.assert_called_once()
+        args = self.mock_redis.hset.call_args
+        self.assertEqual(args[0][0], "regime:BTC/USDC")
+
+    def test_get_market_regime(self):
+        self.mock_redis.hgetall.return_value = {
+            "regime": "trending_up",
+            "confidence": "0.85",
+            "timestamp": "2024-01-01T00:00:00Z",
+        }
+        result = self.store.get_market_regime("BTC/USDC")
+        self.assertEqual(result["regime"], "trending_up")
+        self.assertEqual(result["confidence"], 0.85)
+
+    def test_get_market_regime_returns_none(self):
+        self.mock_redis.hgetall.return_value = {}
+        result = self.store.get_market_regime("BTC/USDC")
+        self.assertIsNone(result)
+
+    # -- Health score --------------------------------------------------
+
+    def test_set_health_score(self):
+        self.store.set_health_score(
+            "funding_rate_arb", 75.0, "B",
+            "2024-01-01T00:00:00Z")
+        self.mock_redis.hset.assert_called_once()
+        args = self.mock_redis.hset.call_args
+        self.assertEqual(args[0][0], "health:funding_rate_arb")
+
+    def test_get_health_score(self):
+        self.mock_redis.hgetall.return_value = {
+            "score": "75.0",
+            "grade": "B",
+            "timestamp": "2024-01-01T00:00:00Z",
+        }
+        result = self.store.get_health_score("funding_rate_arb")
+        self.assertEqual(result["score"], 75.0)
+        self.assertEqual(result["grade"], "B")
+
+    def test_get_health_score_returns_none(self):
+        self.mock_redis.hgetall.return_value = {}
+        result = self.store.get_health_score("funding_rate_arb")
         self.assertIsNone(result)
 
 

@@ -260,6 +260,54 @@ class RedisStore:
         }
 
     # ------------------------------------------------------------------
+    # Market regime (hot state)
+    # ------------------------------------------------------------------
+
+    def set_market_regime(self, symbol: str, regime: str,
+                          confidence: float, timestamp: str) -> None:
+        key = f"regime:{symbol}"
+        self._r.hset(key, mapping={
+            "regime": regime,
+            "confidence": str(confidence),
+            "timestamp": timestamp,
+        })
+
+    def get_market_regime(self, symbol: str) -> Optional[dict]:
+        key = f"regime:{symbol}"
+        data = self._r.hgetall(key)
+        if not data:
+            return None
+        return {
+            "regime": data["regime"],
+            "confidence": float(data["confidence"]),
+            "timestamp": data["timestamp"],
+        }
+
+    # ------------------------------------------------------------------
+    # Health score (hot state)
+    # ------------------------------------------------------------------
+
+    def set_health_score(self, strategy_name: str, score: float,
+                         grade: str, timestamp: str) -> None:
+        key = f"health:{strategy_name}"
+        self._r.hset(key, mapping={
+            "score": str(score),
+            "grade": grade,
+            "timestamp": timestamp,
+        })
+
+    def get_health_score(self, strategy_name: str) -> Optional[dict]:
+        key = f"health:{strategy_name}"
+        data = self._r.hgetall(key)
+        if not data:
+            return None
+        return {
+            "score": float(data["score"]),
+            "grade": data["grade"],
+            "timestamp": data["timestamp"],
+        }
+
+    # ------------------------------------------------------------------
     # Health
     # ------------------------------------------------------------------
 
