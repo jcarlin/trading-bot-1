@@ -10,3 +10,21 @@ pyyaml>=6.0
 
 # Performance Metrics
 quantstats>=0.0.62
+
+# Phase 0: Hyperliquid
+hyperliquid-python-sdk>=0.21.0
+eth-account>=0.11.0
+websockets>=12.0
+
+# Phase 0: Storage
+psycopg2-binary>=2.9.0
+redis>=5.0.0
+
+# Phase 0: Async
+aiohttp>=3.9.0
+
+# Phase 0: Monitoring
+prometheus-client>=0.20.0
+
+# Phase 0: Logging
+python-json-logger>=2.0.0

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from .types import Side, OrderType, SignalType
 
@@ -100,3 +100,62 @@ class Trade:
     @property
     def is_winner(self) -> bool:
         return self.pnl > 0
+
+
+# ------------------------------------------------------------------
+# Phase 0: Market data models
+# ------------------------------------------------------------------
+
+@dataclass
+class OrderBookSnapshot:
+    """A point-in-time snapshot of an order book."""
+    timestamp: datetime
+    symbol: str
+    bids: list  # list of [price, size] pairs
+    asks: list  # list of [price, size] pairs
+    mid_price: float
+    spread: float
+    exchange_ts: Optional[datetime] = None
+    receipt_ts: Optional[datetime] = None
+    seq_num: Optional[int] = None
+
+
+@dataclass
+class FundingRate:
+    """A funding rate observation."""
+    timestamp: datetime
+    symbol: str
+    rate: float
+    premium: float = 0.0
+    mark_price: float = 0.0
+    oracle_price: float = 0.0
+    open_interest: float = 0.0
+    exchange_ts: Optional[datetime] = None
+    receipt_ts: Optional[datetime] = None
+
+
+@dataclass
+class TradeTick:
+    """A single trade from the exchange tape."""
+    timestamp: datetime
+    symbol: str
+    price: float
+    size: float
+    side: Side
+    trade_id: str = ""
+    exchange_ts: Optional[datetime] = None
+    receipt_ts: Optional[datetime] = None
+    seq_num: Optional[int] = None
+
+
+@dataclass
+class EquitySnapshot:
+    """A snapshot of portfolio equity at a point in time."""
+    timestamp: datetime
+    total_equity: float
+    cash: float
+    position_value: float
+    unrealized_pnl: float = 0.0
+    realized_pnl: float = 0.0
+    peak_equity: float = 0.0
+    drawdown_pct: float = 0.0

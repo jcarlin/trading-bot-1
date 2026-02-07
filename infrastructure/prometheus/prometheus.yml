@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'ingestion'
+    static_configs:
+      - targets: ['ingestion:8001']
+
+  - job_name: 'execution'
+    static_configs:
+      - targets: ['execution:8002']
+
+  - job_name: 'health-monitor'
+    static_configs:
+      - targets: ['health-monitor:8003']

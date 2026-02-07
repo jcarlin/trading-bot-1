@@ -1,0 +1,121 @@
+# Trading Bot Phase 0 - Foundation Configuration
+
+# Primary exchange: Hyperliquid
+exchange:
+  primary: hyperliquid
+  hyperliquid:
+    testnet: true
+    account_address: "${HL_ACCOUNT_ADDRESS}"
+    private_key: "${HL_PRIVATE_KEY}"
+    rate_limit_rpm: 1200
+  # Fallback to CCXT exchange
+  fallback: ccxt
+  ccxt:
+    name: binance
+    sandbox: true
+    api_key: "${EXCHANGE_API_KEY}"
+    api_secret: "${EXCHANGE_API_SECRET}"
+
+# Trading symbols
+symbols:
+  - BTC/USDC
+  - ETH/USDC
+
+# Default timeframe
+timeframe: 1h
+
+# Strategy settings (same as default for now)
+strategy:
+  name: sma_crossover
+  params:
+    fast_period: 20
+    slow_period: 50
+    stop_loss_pct: 0.02
+    take_profit_pct: 0.05
+
+# Execution risk controls (hard limits from master prompt)
+execution_risk:
+  max_position_pct_per_asset: 0.05    # 5% per asset
+  max_portfolio_exposure_pct: 1.50     # 150% total exposure
+  max_strategy_drawdown_pct: 0.05      # 5% per strategy
+  max_portfolio_drawdown_pct: 0.15     # 15% system-wide halt
+  max_single_trade_loss_pct: 0.01      # 1% per trade
+  min_cash_reserve_pct: 0.20           # 20% first 90 days
+
+# Legacy risk settings (for backward compat with RiskManager)
+risk:
+  position_sizing: percent_equity
+  max_position_pct: 0.95
+  max_drawdown_pct: 0.20
+  commission_pct: 0.001
+
+# Data ingestion settings
+ingestion:
+  orderbook:
+    enabled: true
+    snapshot_interval_s: 5
+    depth_levels: 5
+  trades:
+    enabled: true
+  funding:
+    enabled: true
+    poll_interval_s: 60
+  candles:
+    enabled: true
+    timeframes:
+      - 1m
+      - 5m
+      - 15m
+      - 1h
+      - 4h
+    backfill_on_start: true
+
+# Data quality thresholds
+data_quality:
+  staleness_threshold_s: 30
+  anomaly_sigma: 3.0
+  gap_detection: true
+
+# Storage configuration
+storage:
+  timescaledb:
+    host: "${POSTGRES_HOST:-localhost}"
+    port: 5432
+    dbname: "${POSTGRES_DB:-trading}"
+    user: "${POSTGRES_USER:-trading}"
+    password: "${POSTGRES_PASSWORD:-trading}"
+  redis:
+    host: "${REDIS_HOST:-localhost}"
+    port: 6379
+    db: 0
+    password: "${REDIS_PASSWORD:-}"
+
+# Monitoring
+monitoring:
+  metrics_port: 8001
+  health_check_interval_s: 30
+  health_port: 8003
+
+# Position reconciliation
+reconciliation:
+  interval_s: 30
+  auto_correct: false
+
+# Backtest settings (same as default)
+backtest:
+  initial_capital: 10000.0
+  start_date: "2024-01-01"
+  end_date: "2025-01-01"
+  data_file: ""
+
+# Paper trading
+paper:
+  initial_capital: 10000.0
+  poll_interval_seconds: 60
+  log_trades: true
+
+# Logging
+logging:
+  level: INFO
+  file: trading.log
+  format: json

@@ -6,13 +6,14 @@ from datetime import datetime, timezone
 
 import ccxt
 
-from core.models import Fill, Order
+from core.models import Fill, Order, Position
 from core.types import OrderType, Side
+from exchange.base import BaseExchange
 
 logger = logging.getLogger(__name__)
 
 
-class CcxtExchange:
+class CcxtExchange(BaseExchange):
     """Thin wrapper around a ccxt exchange for placing and managing orders."""
 
     def __init__(
@@ -178,4 +179,57 @@ class CcxtExchange:
             return orders
         except ccxt.BaseError as exc:
             logger.error("Error fetching open orders for %s: %s", symbol, exc)
+            raise
+
+    def get_positions(self) -> list[Position]:
+        """Return open positions from the exchange.
+
+        Not all CCXT exchanges support position fetching. Returns an empty
+        list if the exchange does not support it.
+        """
+        if not self.exchange.has.get('fetchPositions', False):
+            logger.debug("Exchange does not support fetchPositions")
+            return []
+        try:
+            raw_positions = self.exchange.fetch_positions()
+            positions = []
+            for pos in raw_positions:
+                contracts = float(pos.get('contracts', 0) or 0)
+                if contracts == 0:
+                    continue
+                side = Side.BUY if pos.get('side') == 'long' else Side.SELL
+                entry_price = float(pos.get('entryPrice', 0) or 0)
+                ts = pos.get('datetime')
+                entry_time = (
+                    datetime.fromisoformat(ts) if ts
+                    else datetime.now(timezone.utc)
+                )
+                positions.append(Position(
+                    symbol=pos.get('symbol', ''),
+                    side=side,
+                    entry_price=entry_price,
+                    quantity=contracts,
+                    entry_time=entry_time,
+                    unrealized_pnl=float(pos.get('unrealizedPnl', 0) or 0),
+                ))
+            return positions
+        except ccxt.BaseError as exc:
+            logger.error("Error fetching positions: %s", exc)
+            return []
+
+    def get_account_state(self) -> dict:
+        """Return account state including equity and balances."""
+        try:
+            balance = self.exchange.fetch_balance()
+            total = balance.get('total', {})
+            free = balance.get('free', {})
+            used = balance.get('used', {})
+            return {
+                'total': total,
+                'free': free,
+                'used': used,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+            }
+        except ccxt.BaseError as exc:
+            logger.error("Error fetching account state: %s", exc)
             raise
