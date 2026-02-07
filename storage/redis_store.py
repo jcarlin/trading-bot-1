@@ -307,6 +307,84 @@ class RedisStore:
             "timestamp": data["timestamp"],
         }
 
+
+    # ------------------------------------------------------------------
+    # Portfolio metrics (hot state)
+    # ------------------------------------------------------------------
+
+    def set_portfolio_metrics(self, metrics: dict) -> None:
+        """Store portfolio-level metrics in Redis."""
+        self._r.hset("portfolio:metrics", mapping={
+            k: str(v) if not isinstance(v, str) else v
+            for k, v in metrics.items()
+            if not isinstance(v, dict)  # Skip nested dicts
+        })
+
+    def get_portfolio_metrics(self) -> Optional[dict]:
+        """Retrieve portfolio metrics from Redis."""
+        data = self._r.hgetall("portfolio:metrics")
+        if not data:
+            return None
+        result = {}
+        for k, v in data.items():
+            try:
+                result[k] = float(v)
+            except (ValueError, TypeError):
+                result[k] = v
+        return result
+
+    # ------------------------------------------------------------------
+    # Correlation matrix (hot state)
+    # ------------------------------------------------------------------
+
+    def set_correlation_matrix(self, matrix_dict: dict) -> None:
+        """Store correlation matrix in Redis as JSON."""
+        self._r.set("portfolio:correlation", json.dumps(matrix_dict))
+
+    def get_correlation_matrix(self) -> Optional[dict]:
+        """Retrieve correlation matrix from Redis."""
+        data = self._r.get("portfolio:correlation")
+        if not data:
+            return None
+        return json.loads(data)
+
+    # ------------------------------------------------------------------
+    # Wallet intelligence (hot state)
+    # ------------------------------------------------------------------
+
+    def set_wallet_score(self, address: str, score: float,
+                         grade: str, timestamp: str) -> None:
+        """Store a wallet score in Redis."""
+        key = f"wallet:{address}"
+        self._r.hset(key, mapping={
+            "score": str(score),
+            "grade": grade,
+            "timestamp": timestamp,
+        })
+
+    def get_wallet_score(self, address: str) -> Optional[dict]:
+        """Retrieve a wallet score from Redis."""
+        key = f"wallet:{address}"
+        data = self._r.hgetall(key)
+        if not data:
+            return None
+        return {
+            "score": float(data["score"]),
+            "grade": data["grade"],
+            "timestamp": data["timestamp"],
+        }
+
+    def set_top_wallets(self, wallets: list[dict]) -> None:
+        """Store top wallet list in Redis."""
+        self._r.set("wallets:top", json.dumps(wallets))
+
+    def get_top_wallets(self) -> list[dict]:
+        """Retrieve top wallets from Redis."""
+        data = self._r.get("wallets:top")
+        if not data:
+            return []
+        return json.loads(data)
+
     # ------------------------------------------------------------------
     # Health
     # ------------------------------------------------------------------

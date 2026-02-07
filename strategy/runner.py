@@ -149,6 +149,16 @@ class StrategyRunner:
             ask = float(price_data.get("ask", 0.0))
             mid_price = (bid + ask) / 2 if bid > 0 and ask > 0 else 0.0
 
+            # Regime metadata for strategies that use it
+            metadata = {}
+            try:
+                regime_data = self.redis.get_market_regime(self.symbol)
+                if regime_data:
+                    metadata["regime"] = regime_data.get("regime", "unknown")
+                    metadata["regime_confidence"] = float(regime_data.get("confidence", 0.0))
+            except Exception:
+                logger.debug("Failed to get regime data")
+
             return MarketState(
                 mark_price=float(funding_data.get("mark_price", mid_price)),
                 mid_price=mid_price,
@@ -167,6 +177,7 @@ class StrategyRunner:
                 bid_depth=0.0,
                 ask_depth=0.0,
                 timestamp=now,
+                metadata=metadata,
             )
         except Exception:
             logger.exception("Failed to build market state")

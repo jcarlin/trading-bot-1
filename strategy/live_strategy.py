@@ -28,6 +28,7 @@ class MarketState:
     bid_depth: float = 0.0
     ask_depth: float = 0.0
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    metadata: dict = field(default_factory=dict)
 
 
 class LiveStrategy(ABC):

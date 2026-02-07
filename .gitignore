@@ -28,3 +28,5 @@ backtest_report.html
 
 # Secrets
 .env
+
+.claude

@@ -2,6 +2,7 @@
 
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -13,11 +14,14 @@ class ReportGenerator:
     """
 
     def __init__(self, performance_tracker, health_scorer, timescale,
-                 strategy_name: str):
+                 strategy_name: str, correlation_analyzer=None,
+                 portfolio_tracker=None):
         self.performance_tracker = performance_tracker
         self.health_scorer = health_scorer
         self.timescale = timescale
         self.strategy_name = strategy_name
+        self.correlation_analyzer = correlation_analyzer
+        self.portfolio_tracker = portfolio_tracker
 
     def generate_hourly_report(self) -> str:
         """Generate a brief hourly status report."""
@@ -211,3 +215,115 @@ Hold Decisions: {sum(1 for d in decisions if d.get('decision_type') == 'hold')}
             recommendations.append("No action needed. Continue monitoring.")
 
         return "\n".join(f"  - {r}" for r in recommendations)
+
+    def generate_portfolio_report(self, strategy_health_map: Optional[dict] = None,
+                                   wallet_highlights: Optional[list] = None) -> str:
+        """Generate a portfolio-level report across all strategies.
+
+        Args:
+            strategy_health_map: {strategy_name: {health_score, grade}} for ranking table.
+            wallet_highlights: List of wallet discovery dicts for intelligence section.
+
+        Returns:
+            Formatted report string.
+        """
+        now = datetime.now(timezone.utc)
+
+        # Portfolio metrics
+        portfolio_metrics = {}
+        if self.portfolio_tracker:
+            try:
+                portfolio_metrics = self.portfolio_tracker.compute_portfolio_metrics()
+            except Exception:
+                logger.debug("Failed to compute portfolio metrics for report")
+
+        total_pnl = portfolio_metrics.get("total_pnl", 0)
+        portfolio_sharpe = portfolio_metrics.get("portfolio_sharpe", 0)
+        portfolio_dd = portfolio_metrics.get("portfolio_max_dd", 0)
+        capital_efficiency = portfolio_metrics.get("capital_efficiency", 0)
+        contributions = portfolio_metrics.get("strategy_contributions", {})
+
+        # Strategy ranking
+        ranking_lines = []
+        if strategy_health_map:
+            sorted_strats = sorted(
+                strategy_health_map.items(),
+                key=lambda x: x[1].get("health_score", 0),
+                reverse=True,
+            )
+            for rank, (sname, shealth) in enumerate(sorted_strats, 1):
+                score = shealth.get("health_score", 0)
+                grade = shealth.get("grade", "N/A")
+                pnl = contributions.get(sname, 0)
+                ranking_lines.append(
+                    f"  {rank}. {sname}: Score={score:.0f} Grade={grade} PnL={pnl:.4f}")
+        else:
+            ranking_lines.append("  No strategy health data available.")
+
+        # Correlation matrix
+        corr_lines = []
+        if self.correlation_analyzer:
+            try:
+                corr = self.correlation_analyzer.compute_correlation_matrix()
+                corr_matrix = corr.get("matrix", [])
+                corr_names = corr.get("strategy_names", [])
+                if corr_names:
+                    header = "  " + " ".join(f"{n[:12]:>12}" for n in corr_names)
+                    corr_lines.append(header)
+                    for i, name in enumerate(corr_names):
+                        row_vals = " ".join(
+                            f"{corr_matrix[i][j]:12.4f}" for j in range(len(corr_names)))
+                        corr_lines.append(f"  {name[:12]:>12} {row_vals}")
+            except Exception:
+                corr_lines.append("  Correlation data unavailable.")
+        else:
+            corr_lines.append("  Correlation analyzer not configured.")
+
+        # Allocation recommendations
+        alloc_lines = []
+        if strategy_health_map:
+            for sname, shealth in strategy_health_map.items():
+                score = shealth.get("health_score", 0)
+                if score >= 80:
+                    alloc_lines.append(f"  - {sname}: Consider increasing allocation (health={score:.0f})")
+                elif score < 30:
+                    alloc_lines.append(f"  - {sname}: Consider reducing allocation (health={score:.0f})")
+        if not alloc_lines:
+            alloc_lines.append("  - No allocation changes recommended.")
+
+        # Wallet intelligence
+        wallet_lines = []
+        if wallet_highlights:
+            for w in wallet_highlights[:5]:
+                addr = w.get("address", "unknown")
+                wscore = w.get("score", 0)
+                wallet_lines.append(f"  - {addr[:16]}...: score={wscore:.1f}")
+        else:
+            wallet_lines.append("  No wallet intelligence data available.")
+
+        report = f"""
+{'=' * 60}
+PORTFOLIO REPORT
+{'=' * 60}
+Generated: {now.strftime('%Y-%m-%d %H:%M UTC')}
+
+--- PORTFOLIO METRICS ---
+Total PnL: {total_pnl:.4f}
+Portfolio Sharpe: {portfolio_sharpe:.4f}
+Portfolio Max DD: {portfolio_dd:.2f}%
+Capital Efficiency: {capital_efficiency:.6f}
+
+--- STRATEGY RANKING ---
+{chr(10).join(ranking_lines)}
+
+--- CORRELATION MATRIX ---
+{chr(10).join(corr_lines)}
+
+--- ALLOCATION RECOMMENDATIONS ---
+{chr(10).join(alloc_lines)}
+
+--- WALLET INTELLIGENCE ---
+{chr(10).join(wallet_lines)}
+""".strip()
+
+        return report

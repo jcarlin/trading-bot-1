@@ -224,3 +224,48 @@ evaluation_cycle_duration_seconds = Histogram(
     ['checkpoint_type'],
     buckets=[0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0],
 )
+
+# ---------------------------------------------------------------------------
+# Portfolio & Multi-Strategy (Phase 3)
+# ---------------------------------------------------------------------------
+
+portfolio_sharpe_ratio = Gauge(
+    'portfolio_sharpe_ratio',
+    'Portfolio-level Sharpe ratio',
+)
+
+portfolio_total_pnl = Gauge(
+    'portfolio_total_pnl',
+    'Portfolio total PnL across all strategies',
+)
+
+strategy_correlation = Gauge(
+    'strategy_correlation',
+    'Pairwise correlation between strategy returns',
+    ['strategy_a', 'strategy_b'],
+)
+
+portfolio_capital_efficiency = Gauge(
+    'portfolio_capital_efficiency',
+    'Portfolio capital efficiency (return per unit equity)',
+)
+
+# ---------------------------------------------------------------------------
+# Wallet Intelligence (Phase 3)
+# ---------------------------------------------------------------------------
+
+wallet_discovery_count = Gauge(
+    'wallet_discovery_count',
+    'Number of wallets discovered in latest cycle',
+)
+
+wallet_top_score = Gauge(
+    'wallet_top_score',
+    'Highest wallet score from latest discovery',
+)
+
+wallet_analysis_duration_seconds = Histogram(
+    'wallet_analysis_duration_seconds',
+    'Time spent on wallet analysis',
+    buckets=[1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0],
+)

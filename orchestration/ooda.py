@@ -24,7 +24,8 @@ class OODAOrchestrator:
     def __init__(self, strategy_manager, health_scorer, regime_classifier,
                  timescale, redis_store, config: Optional[dict] = None,
                  backtest_comparator=None, signal_assessor=None,
-                 execution_tracker=None, report_generator=None):
+                 execution_tracker=None, report_generator=None,
+                 correlation_analyzer=None, portfolio_tracker=None):
         self.strategy_manager = strategy_manager
         self.health_scorer = health_scorer
         self.regime_classifier = regime_classifier
@@ -37,12 +38,25 @@ class OODAOrchestrator:
         self.signal_assessor = signal_assessor
         self.execution_tracker = execution_tracker
         self.report_generator = report_generator
+        self.correlation_analyzer = correlation_analyzer
+        self.portfolio_tracker = portfolio_tracker
 
         # Config
         self.symbol = self.config.get("symbol", "BTC/USDC")
         self.strategy_name = self.config.get("strategy_name", "funding_rate_arb")
         self.decay_pause_threshold = self.config.get("decay_pause_threshold", 50.0)
         self.health_pause_threshold = self.config.get("health_pause_threshold", 20)
+
+        # Multi-strategy config
+        self.correlation_limit = self.config.get("correlation_limit", 0.8)
+        self.portfolio_dd_limit = self.config.get("portfolio_dd_limit", 15.0)
+
+        # Strategy-regime suitability mapping
+        self.regime_suitability = {
+            "momentum": ["trending_up", "trending_down"],
+            "mean_reversion": ["ranging"],
+            "funding_rate_arb": ["trending_up", "trending_down", "ranging"],
+        }
 
     async def evaluate(self, checkpoint_type: str) -> dict:
         """Execute a full OODA cycle.
@@ -157,6 +171,41 @@ class OODAOrchestrator:
             except Exception:
                 logger.debug("Failed to generate report")
 
+        # Multi-strategy: correlation matrix
+        if self.correlation_analyzer:
+            try:
+                corr = self.correlation_analyzer.compute_correlation_matrix()
+                metrics["correlation"] = corr
+            except Exception:
+                logger.debug("Failed to compute correlation matrix")
+
+        # Multi-strategy: portfolio-level metrics
+        if self.portfolio_tracker:
+            try:
+                portfolio = self.portfolio_tracker.compute_portfolio_metrics()
+                metrics["portfolio"] = portfolio
+            except Exception:
+                logger.debug("Failed to compute portfolio metrics")
+
+        # Multi-strategy: per-strategy health scores
+        active_strategies = self.strategy_manager.get_active_strategies()
+        if len(active_strategies) > 1:
+            per_strategy_health = {}
+            for strat_name in active_strategies:
+                try:
+                    h = self.health_scorer.compute_health_score(
+                        window_hours=168 if checkpoint_type != "hourly" else 24,
+                        strategy_name=strat_name)
+                    per_strategy_health[strat_name] = h
+                except Exception:
+                    try:
+                        h = self.health_scorer.compute_health_score(
+                            window_hours=168 if checkpoint_type != "hourly" else 24)
+                        per_strategy_health[strat_name] = h
+                    except Exception:
+                        per_strategy_health[strat_name] = {"health_score": 0, "grade": "N/A"}
+            metrics["per_strategy_health"] = per_strategy_health
+
         return metrics
 
     def _orient(self, metrics: dict) -> tuple:
@@ -267,6 +316,93 @@ class OODAOrchestrator:
                 ],
             }
 
+        # --- Multi-strategy rules (5-7) ---
+        active_strategies = self.strategy_manager.get_active_strategies()
+
+        # Rule 5: Correlation too high between any pair
+        corr_data = metrics.get("correlation", {})
+        corr_matrix = corr_data.get("matrix", [])
+        corr_names = corr_data.get("strategy_names", [])
+        if len(corr_matrix) >= 2 and len(corr_names) >= 2:
+            for i in range(len(corr_names)):
+                for j in range(i + 1, len(corr_names)):
+                    try:
+                        corr_val = float(corr_matrix[i][j])
+                    except (IndexError, TypeError, ValueError):
+                        continue
+                    if corr_val > self.correlation_limit:
+                        return {
+                            "action": "adjust_allocation",
+                            "strategy_name": corr_names[j],
+                            "current_allocation": 1.0,
+                            "recommended_allocation": 0.5,
+                            "reason": (f"Correlation between {corr_names[i]} and "
+                                       f"{corr_names[j]} is {corr_val:.2f} > "
+                                       f"{self.correlation_limit}"),
+                            "hypothesis": "Reducing allocation to correlated strategies diversifies risk",
+                            "confidence": 0.7,
+                            "alternatives": [
+                                {"action": "pause_strategy",
+                                 "reason": "Could pause one of the correlated strategies"},
+                            ],
+                        }
+
+        # Rule 6: Portfolio-level drawdown -> pause worst strategy
+        portfolio_data = metrics.get("portfolio", {})
+        portfolio_dd = portfolio_data.get("portfolio_max_dd", 0)
+        if portfolio_dd > self.portfolio_dd_limit and len(active_strategies) > 1:
+            # Find worst-performing strategy by health score
+            per_health = metrics.get("per_strategy_health", {})
+            worst_name = None
+            worst_score = float("inf")
+            for sname, shealth in per_health.items():
+                s = shealth.get("health_score", 100)
+                if s < worst_score:
+                    worst_score = s
+                    worst_name = sname
+            if worst_name:
+                return {
+                    "action": "pause_strategy",
+                    "strategy_name": worst_name,
+                    "reason": (f"Portfolio drawdown {portfolio_dd:.1f}% exceeds "
+                               f"{self.portfolio_dd_limit}% limit. Pausing worst "
+                               f"strategy: {worst_name} (health={worst_score:.0f})"),
+                    "hypothesis": "Pausing worst performer will reduce portfolio drawdown",
+                    "confidence": 0.8,
+                    "alternatives": [
+                        {"action": "adjust_risk",
+                         "reason": "Could tighten risk on all strategies"},
+                    ],
+                }
+
+        # Rule 7: Strategy-regime suitability for multi-strategy
+        current_regime = regime.get("regime", "unknown")
+        if current_regime != "unknown" and len(active_strategies) > 1:
+            for strat_name in active_strategies:
+                strat_info = self.strategy_manager._strategies.get(strat_name, {})
+                strategy_obj = strat_info.get("strategy")
+                if strategy_obj is None:
+                    continue
+                try:
+                    category = strategy_obj.get_metadata().get("category", "")
+                except Exception:
+                    continue
+                suitable_regimes = self.regime_suitability.get(category, [])
+                if suitable_regimes and current_regime not in suitable_regimes:
+                    return {
+                        "action": "adjust_risk",
+                        "strategy_name": strat_name,
+                        "reason": (f"Strategy {strat_name} (category={category}) not "
+                                   f"suited for regime '{current_regime}'. "
+                                   f"Suited for: {suitable_regimes}"),
+                        "hypothesis": "Reducing exposure for mismatched strategy-regime preserves capital",
+                        "confidence": 0.6,
+                        "alternatives": [
+                            {"action": "pause_strategy",
+                             "reason": "Could pause until regime changes"},
+                        ],
+                    }
+
         # No action needed
         return None
 
@@ -283,6 +419,16 @@ class OODAOrchestrator:
             elif action == "resume_strategy":
                 await self.strategy_manager.resume_strategy(strategy_name)
                 return {"executed": True, "action": action, "strategy": strategy_name}
+
+            elif action == "adjust_allocation":
+                logger.warning("Allocation adjustment recommended for %s: %s",
+                               strategy_name, decision.get("reason"))
+                return {
+                    "executed": True, "action": action,
+                    "strategy": strategy_name,
+                    "recommended_allocation": decision.get("recommended_allocation"),
+                    "note": "logged_recommendation",
+                }
 
             elif action == "adjust_risk":
                 # Log the recommendation — actual risk param changes are manual for now

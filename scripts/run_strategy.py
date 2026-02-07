@@ -36,6 +36,14 @@ try:
 except ImportError:
     PHASE2_AVAILABLE = False
 
+# Phase 3 imports (optional — graceful if not available)
+try:
+    from metrics.correlation import CorrelationAnalyzer
+    from metrics.portfolio_performance import PortfolioPerformanceTracker
+    PHASE3_AVAILABLE = True
+except ImportError:
+    PHASE3_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 RECONCILE_INTERVAL_S = 30
@@ -200,27 +208,64 @@ async def run(config: Config) -> None:
     )
     logger.info("Execution engine initialised")
 
-    # Load strategy
-    strategy_name = config.get("strategy_runner.strategy", "funding_rate_arb")
-    strategy_params = config.get_section(f"strategies.{strategy_name}")
-    strategy = load_strategy(strategy_name, strategy_params)
-    logger.info("Strategy loaded: %s", strategy.get_metadata().get("name"))
+    # Determine run mode
+    run_mode = config.get("strategy_runner.mode", "single")
+    multi_strategies_cfg = config.get("strategy_runner.strategies", [])
 
-    # Decision logger
-    decision_logger = StrategyDecisionLogger(timescale_store, strategy_name)
+    # Multi-strategy mode
+    if run_mode == "multi" and multi_strategies_cfg:
+        logger.info("Multi-strategy mode: loading %d strategies", len(multi_strategies_cfg))
+        strategies = {}
+        runners = {}
+        trackers = {}
+        strategy_names = []
 
-    # Strategy runner
-    runner = StrategyRunner(
-        strategy=strategy,
-        execution_engine=engine,
-        timescale=timescale_store,
-        redis=redis_store,
-        config=config,
-        decision_logger=decision_logger,
-    )
+        for strat_cfg in multi_strategies_cfg:
+            sname = strat_cfg.get("name") if isinstance(strat_cfg, dict) else strat_cfg
+            sparams = config.get_section(f"strategies.{sname}")
+            strat = load_strategy(sname, sparams)
+            slogger = StrategyDecisionLogger(timescale_store, sname)
+            srunner = StrategyRunner(
+                strategy=strat,
+                execution_engine=engine,
+                timescale=timescale_store,
+                redis=redis_store,
+                config=config,
+                decision_logger=slogger,
+            )
+            stracker = StrategyPerformanceTracker(timescale_store, sname)
+            strategies[sname] = strat
+            runners[sname] = srunner
+            trackers[sname] = stracker
+            strategy_names.append(sname)
+            logger.info("Loaded strategy: %s", sname)
 
-    # Performance tracker
-    tracker = StrategyPerformanceTracker(timescale_store, strategy_name)
+        # Use first strategy as primary for single-strategy fallback references
+        strategy_name = strategy_names[0]
+        strategy = strategies[strategy_name]
+        runner = runners[strategy_name]
+        tracker = trackers[strategy_name]
+        decision_logger = StrategyDecisionLogger(timescale_store, strategy_name)
+    else:
+        # Single strategy mode (backward compatible)
+        strategy_name = config.get("strategy_runner.strategy", "funding_rate_arb")
+        strategy_params = config.get_section(f"strategies.{strategy_name}")
+        strategy = load_strategy(strategy_name, strategy_params)
+        logger.info("Strategy loaded: %s", strategy.get_metadata().get("name"))
+        decision_logger = StrategyDecisionLogger(timescale_store, strategy_name)
+        runner = StrategyRunner(
+            strategy=strategy,
+            execution_engine=engine,
+            timescale=timescale_store,
+            redis=redis_store,
+            config=config,
+            decision_logger=decision_logger,
+        )
+        tracker = StrategyPerformanceTracker(timescale_store, strategy_name)
+        strategies = {strategy_name: strategy}
+        runners = {strategy_name: runner}
+        trackers = {strategy_name: tracker}
+        strategy_names = [strategy_name]
 
     # Phase 2: Self-Evaluation Loop (optional)
     scheduler = None
@@ -248,16 +293,30 @@ async def run(config: Config) -> None:
             decision_logger=decision_logger,
         )
 
-        # Register current strategy with manager
-        strategy_manager_instance._strategies[strategy_name] = {
-            "strategy": strategy,
-            "runner": runner,
-            "status": "active",
-            "started_at": datetime.now(timezone.utc).isoformat(),
-        }
+        # Register all strategies with manager
+        for sname in strategy_names:
+            strategy_manager_instance._strategies[sname] = {
+                "strategy": strategies[sname],
+                "runner": runners[sname],
+                "status": "active",
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+        # Phase 3: Correlation and portfolio tracking
+        correlation_analyzer = None
+        portfolio_tracker_inst = None
+        if PHASE3_AVAILABLE and len(strategy_names) > 1:
+            correlation_analyzer = CorrelationAnalyzer(
+                timescale_store, strategy_names)
+            portfolio_tracker_inst = PortfolioPerformanceTracker(
+                timescale_store, strategy_names)
+            logger.info("Phase 3 correlation + portfolio tracking enabled")
 
         report_gen = ReportGenerator(
-            tracker, health_scorer, timescale_store, strategy_name)
+            tracker, health_scorer, timescale_store, strategy_name,
+            correlation_analyzer=correlation_analyzer,
+            portfolio_tracker=portfolio_tracker_inst,
+        )
 
         # Backtest comparator (optional)
         backtest_comp = None
@@ -279,6 +338,8 @@ async def run(config: Config) -> None:
             signal_assessor=signal_assessor,
             execution_tracker=execution_tracker,
             report_generator=report_gen,
+            correlation_analyzer=correlation_analyzer,
+            portfolio_tracker=portfolio_tracker_inst,
         )
 
         scheduler = EvaluationScheduler(
@@ -298,20 +359,26 @@ async def run(config: Config) -> None:
 
     # Start concurrent loops
     tasks = [
-        asyncio.create_task(runner.run(stop_event)),
         asyncio.create_task(equity_update_loop(engine, stop_event)),
         asyncio.create_task(reconciliation_loop(engine, stop_event)),
-        asyncio.create_task(performance_update_loop(tracker, config, stop_event)),
     ]
+
+    # Launch all strategy runners
+    for sname, srunner in runners.items():
+        tasks.append(asyncio.create_task(srunner.run(stop_event)))
+
+    # Launch performance update for primary tracker
+    tasks.append(asyncio.create_task(
+        performance_update_loop(tracker, config, stop_event)))
 
     # Phase 2: Add evaluation scheduler
     if scheduler is not None:
         tasks.append(asyncio.create_task(scheduler.run(stop_event)))
         logger.info("Phase 2 evaluation scheduler started")
 
-    logger.info("Strategy service running: %s on %s (phase2=%s)",
+    logger.info("Strategy service running: %s on %s (mode=%s, strategies=%d, phase2=%s)",
                  strategy_name, config.get("strategy_runner.symbol"),
-                 scheduler is not None)
+                 run_mode, len(strategy_names), scheduler is not None)
 
     try:
         await stop_event.wait()

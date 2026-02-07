@@ -451,6 +451,130 @@ class TimescaleStore:
         """
         return self._query(sql, (strategy_name, start, end))
 
+
+    # ------------------------------------------------------------------
+    # Correlation snapshots (stored in system_events)
+    # ------------------------------------------------------------------
+
+    def insert_correlation_snapshot(self, strategies: list[str],
+                                    matrix: list[list[float]],
+                                    timestamp: datetime) -> None:
+        """Store a correlation matrix snapshot as a system event."""
+        self.insert_system_event({
+            "time": timestamp,
+            "event_type": "correlation_snapshot",
+            "severity": "info",
+            "component": "correlation_analyzer",
+            "message": f"Correlation snapshot for {len(strategies)} strategies",
+            "details": {
+                "strategies": strategies,
+                "matrix": matrix,
+            },
+        })
+
+    def query_correlation_snapshots(self, start: datetime,
+                                     end: datetime) -> list[dict]:
+        """Query correlation snapshots from system events."""
+        sql = """
+            SELECT time, details FROM system_events
+            WHERE event_type = 'correlation_snapshot'
+              AND time >= %s AND time <= %s
+            ORDER BY time ASC
+        """
+        rows = self._query(sql, (start, end))
+        results = []
+        for row in rows:
+            details = row.get("details", {})
+            if isinstance(details, str):
+                import json
+                details = json.loads(details)
+            results.append({
+                "time": row["time"],
+                **details,
+            })
+        return results
+
+    # ------------------------------------------------------------------
+    # Wallet intelligence
+    # ------------------------------------------------------------------
+
+    def insert_wallet_score(self, address: str, score: float,
+                            components: dict, timestamp: datetime) -> None:
+        """Store a wallet score as a system event."""
+        self.insert_system_event({
+            "time": timestamp,
+            "event_type": "wallet_score",
+            "severity": "info",
+            "component": "wallet_scorer",
+            "message": f"Wallet {address[:10]}...: score={score:.1f}",
+            "details": {
+                "address": address,
+                "score": score,
+                "components": components,
+            },
+        })
+
+    def query_wallet_scores(self, min_score: float = 0.0,
+                            limit: int = 50) -> list[dict]:
+        """Query wallet scores from system events."""
+        sql = """
+            SELECT time, details FROM system_events
+            WHERE event_type = 'wallet_score'
+            ORDER BY time DESC
+            LIMIT %s
+        """
+        rows = self._query(sql, (limit,))
+        results = []
+        for row in rows:
+            details = row.get("details", {})
+            if isinstance(details, str):
+                import json
+                details = json.loads(details)
+            if details.get("score", 0) >= min_score:
+                results.append({
+                    "time": row["time"],
+                    **details,
+                })
+        return results
+
+    def insert_wallet_analysis(self, address: str, analysis: dict,
+                                timestamp: datetime) -> None:
+        """Store a wallet analysis as a system event."""
+        self.insert_system_event({
+            "time": timestamp,
+            "event_type": "wallet_analysis",
+            "severity": "info",
+            "component": "pattern_analyzer",
+            "message": f"Analysis for {address[:10]}...",
+            "details": {
+                "address": address,
+                "analysis": analysis,
+            },
+        })
+
+    def query_wallet_analyses(self, address: str, start: datetime,
+                               end: datetime) -> list[dict]:
+        """Query wallet analyses from system events."""
+        sql = """
+            SELECT time, details FROM system_events
+            WHERE event_type = 'wallet_analysis'
+              AND time >= %s AND time <= %s
+            ORDER BY time ASC
+        """
+        rows = self._query(sql, (start, end))
+        results = []
+        for row in rows:
+            details = row.get("details", {})
+            if isinstance(details, str):
+                import json
+                details = json.loads(details)
+            if details.get("address") == address:
+                results.append({
+                    "time": row["time"],
+                    **details,
+                })
+        return results
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
