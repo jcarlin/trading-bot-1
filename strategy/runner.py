@@ -81,6 +81,12 @@ class StrategyRunner:
         # 3. Process signal
         if signal.signal_type != SignalType.HOLD:
             signal.metadata["symbol"] = self.symbol
+
+            # Apply allocation weight to signal size
+            alloc_weight = self._get_allocation_weight()
+            if alloc_weight < 1.0 and signal.size is not None:
+                signal.size = signal.size * alloc_weight
+
             await self.execution_engine.process_signal(signal, self._strategy_name)
 
             self.decision_logger.log_signal(
@@ -211,6 +217,16 @@ class StrategyRunner:
             )
         except Exception:
             logger.exception("Failed to checkpoint strategy state")
+
+    def _get_allocation_weight(self) -> float:
+        """Read allocation weight from Redis. Defaults to 1.0."""
+        try:
+            raw = self.redis._r.get(f"strategy:{self._strategy_name}:allocation")
+            if raw is not None:
+                return float(raw)
+        except Exception:
+            logger.debug("Could not read allocation weight for %s", self._strategy_name)
+        return 1.0
 
     async def stop(self) -> None:
         """Signal the runner to stop."""

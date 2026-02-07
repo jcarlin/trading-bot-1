@@ -15,13 +15,14 @@ class ReportGenerator:
 
     def __init__(self, performance_tracker, health_scorer, timescale,
                  strategy_name: str, correlation_analyzer=None,
-                 portfolio_tracker=None):
+                 portfolio_tracker=None, ai_report_writer=None):
         self.performance_tracker = performance_tracker
         self.health_scorer = health_scorer
         self.timescale = timescale
         self.strategy_name = strategy_name
         self.correlation_analyzer = correlation_analyzer
         self.portfolio_tracker = portfolio_tracker
+        self.ai_report_writer = ai_report_writer
 
     def generate_hourly_report(self) -> str:
         """Generate a brief hourly status report."""
@@ -118,6 +119,17 @@ State Changes: {len(state_changes)}
 --- RECOMMENDATIONS ---
 {self._generate_recommendations(metrics, health)}
 """.strip()
+
+        # Append AI analysis if available
+        if self.ai_report_writer:
+            try:
+                ai_analysis = self.ai_report_writer.generate_weekly_report(
+                    metrics=metrics, health=health, decisions=decisions,
+                    regime={})
+                if ai_analysis:
+                    report += f"\n\n--- AI ANALYSIS ---\n{ai_analysis}"
+            except Exception:
+                logger.debug("AI report writer unavailable for weekly report")
 
         return report
 

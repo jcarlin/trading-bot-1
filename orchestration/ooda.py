@@ -25,7 +25,9 @@ class OODAOrchestrator:
                  timescale, redis_store, config: Optional[dict] = None,
                  backtest_comparator=None, signal_assessor=None,
                  execution_tracker=None, report_generator=None,
-                 correlation_analyzer=None, portfolio_tracker=None):
+                 correlation_analyzer=None, portfolio_tracker=None,
+                 ai_decision_engine=None, allocation_optimizer=None,
+                 ab_test_manager=None, decision_auditor=None):
         self.strategy_manager = strategy_manager
         self.health_scorer = health_scorer
         self.regime_classifier = regime_classifier
@@ -33,13 +35,19 @@ class OODAOrchestrator:
         self.redis_store = redis_store
         self.config = config or {}
 
-        # Optional components
+        # Optional components (Phase 2)
         self.backtest_comparator = backtest_comparator
         self.signal_assessor = signal_assessor
         self.execution_tracker = execution_tracker
         self.report_generator = report_generator
         self.correlation_analyzer = correlation_analyzer
         self.portfolio_tracker = portfolio_tracker
+
+        # Phase 4 components
+        self.ai_decision_engine = ai_decision_engine
+        self.allocation_optimizer = allocation_optimizer
+        self.ab_test_manager = ab_test_manager
+        self.decision_auditor = decision_auditor
 
         # Config
         self.symbol = self.config.get("symbol", "BTC/USDC")
@@ -257,12 +265,41 @@ class OODAOrchestrator:
 
     def _decide(self, metrics: dict, regime: dict, assessment: dict,
                 checkpoint_type: str) -> Optional[dict]:
-        """DECIDE: Choose an action from the decision menu."""
+        """DECIDE: Choose an action from the decision menu.
+
+        Decision priority:
+        1. Safety rules (non-overridable, always checked first)
+        2. AI decision engine (Claude-powered reasoning)
+        3. Rule-based fallback (heuristic rules)
+        """
+        # --- Phase 1: SAFETY RULES (non-overridable) ---
+        safety_decision = self._safety_rules(metrics, assessment, regime)
+        if safety_decision:
+            safety_decision["source"] = "safety_rules"
+            return safety_decision
+
+        # --- Phase 2: AI DECISION ENGINE ---
+        if self.ai_decision_engine:
+            try:
+                active_strategies = self.strategy_manager.get_active_strategies()
+                ai_decision = self.ai_decision_engine.decide(
+                    metrics, regime, assessment, checkpoint_type, active_strategies)
+                if ai_decision:
+                    return ai_decision
+            except Exception:
+                logger.debug("AI decision engine failed, falling back to rules")
+
+        # --- Phase 3: RULE-BASED FALLBACK ---
+        return self._rule_based_decide(metrics, regime, assessment, checkpoint_type)
+
+    def _safety_rules(self, metrics: dict, assessment: dict,
+                      regime: dict) -> Optional[dict]:
+        """Non-overridable safety rules. Always checked first."""
         health = metrics.get("health", {})
         health_score = health.get("health_score", 100)
         max_dd = health.get("raw_metrics", {}).get("max_drawdown", 0)
 
-        # Rule 1: Health score critically low -> pause
+        # Safety 1: Health critically low -> pause
         if health_score < self.health_pause_threshold:
             return {
                 "action": "pause_strategy",
@@ -275,7 +312,7 @@ class OODAOrchestrator:
                 ],
             }
 
-        # Rule 2: Backtest decay > threshold -> pause
+        # Safety 2: Backtest decay > threshold -> pause
         comparison = metrics.get("backtest_comparison", {})
         decay_pct = comparison.get("decay_pct", 0)
         if decay_pct > self.decay_pause_threshold:
@@ -290,7 +327,7 @@ class OODAOrchestrator:
                 ],
             }
 
-        # Rule 3: Max drawdown exceeds limit -> adjust risk
+        # Safety 3: Max drawdown exceeds limit -> adjust risk
         if max_dd > 5.0:
             return {
                 "action": "adjust_risk",
@@ -303,6 +340,41 @@ class OODAOrchestrator:
                 ],
             }
 
+        # Safety 4: Portfolio-level drawdown -> pause worst
+        active_strategies = self.strategy_manager.get_active_strategies()
+        portfolio_data = metrics.get("portfolio", {})
+        portfolio_dd = portfolio_data.get("portfolio_max_dd", 0)
+        if portfolio_dd > self.portfolio_dd_limit and len(active_strategies) > 1:
+            per_health = metrics.get("per_strategy_health", {})
+            worst_name = None
+            worst_score = float("inf")
+            for sname, shealth in per_health.items():
+                s = shealth.get("health_score", 100)
+                if s < worst_score:
+                    worst_score = s
+                    worst_name = sname
+            if worst_name:
+                return {
+                    "action": "pause_strategy",
+                    "strategy_name": worst_name,
+                    "reason": (f"Portfolio drawdown {portfolio_dd:.1f}% exceeds "
+                               f"{self.portfolio_dd_limit}% limit. Pausing worst "
+                               f"strategy: {worst_name} (health={worst_score:.0f})"),
+                    "hypothesis": "Pausing worst performer will reduce portfolio drawdown",
+                    "confidence": 0.8,
+                    "alternatives": [
+                        {"action": "adjust_risk",
+                         "reason": "Could tighten risk on all strategies"},
+                    ],
+                }
+
+        return None
+
+    def _rule_based_decide(self, metrics: dict, regime: dict, assessment: dict,
+                           checkpoint_type: str) -> Optional[dict]:
+        """Rule-based decision fallback (heuristic rules 4-9)."""
+        active_strategies = self.strategy_manager.get_active_strategies()
+
         # Rule 4: Regime not suitable -> adjust risk
         if not assessment.get("suitable", True):
             return {
@@ -314,10 +386,8 @@ class OODAOrchestrator:
                 "alternatives": [
                     {"action": "pause_strategy", "reason": "Could pause until regime changes"},
                 ],
+                "source": "rules",
             }
-
-        # --- Multi-strategy rules (5-7) ---
-        active_strategies = self.strategy_manager.get_active_strategies()
 
         # Rule 5: Correlation too high between any pair
         corr_data = metrics.get("correlation", {})
@@ -345,37 +415,10 @@ class OODAOrchestrator:
                                 {"action": "pause_strategy",
                                  "reason": "Could pause one of the correlated strategies"},
                             ],
+                            "source": "rules",
                         }
 
-        # Rule 6: Portfolio-level drawdown -> pause worst strategy
-        portfolio_data = metrics.get("portfolio", {})
-        portfolio_dd = portfolio_data.get("portfolio_max_dd", 0)
-        if portfolio_dd > self.portfolio_dd_limit and len(active_strategies) > 1:
-            # Find worst-performing strategy by health score
-            per_health = metrics.get("per_strategy_health", {})
-            worst_name = None
-            worst_score = float("inf")
-            for sname, shealth in per_health.items():
-                s = shealth.get("health_score", 100)
-                if s < worst_score:
-                    worst_score = s
-                    worst_name = sname
-            if worst_name:
-                return {
-                    "action": "pause_strategy",
-                    "strategy_name": worst_name,
-                    "reason": (f"Portfolio drawdown {portfolio_dd:.1f}% exceeds "
-                               f"{self.portfolio_dd_limit}% limit. Pausing worst "
-                               f"strategy: {worst_name} (health={worst_score:.0f})"),
-                    "hypothesis": "Pausing worst performer will reduce portfolio drawdown",
-                    "confidence": 0.8,
-                    "alternatives": [
-                        {"action": "adjust_risk",
-                         "reason": "Could tighten risk on all strategies"},
-                    ],
-                }
-
-        # Rule 7: Strategy-regime suitability for multi-strategy
+        # Rule 6: Strategy-regime suitability for multi-strategy
         current_regime = regime.get("regime", "unknown")
         if current_regime != "unknown" and len(active_strategies) > 1:
             for strat_name in active_strategies:
@@ -401,9 +444,97 @@ class OODAOrchestrator:
                             {"action": "pause_strategy",
                              "reason": "Could pause until regime changes"},
                         ],
+                        "source": "rules",
                     }
 
+        # Rule 7: A/B test promotion check (daily+)
+        if self.ab_test_manager and checkpoint_type in ("daily", "weekly", "monthly"):
+            try:
+                promotion = self._check_ab_tests()
+                if promotion:
+                    return promotion
+            except Exception:
+                logger.debug("A/B test check failed")
+
+        # Rule 8: Rebalance allocations (daily+)
+        if self.allocation_optimizer and checkpoint_type in ("daily", "weekly", "monthly"):
+            try:
+                rebalance = self._check_rebalance(metrics)
+                if rebalance:
+                    return rebalance
+            except Exception:
+                logger.debug("Rebalance check failed")
+
         # No action needed
+        return None
+
+    def _check_ab_tests(self) -> Optional[dict]:
+        """Check A/B tests for promotion candidates."""
+        active_tests = self.ab_test_manager.get_active_tests()
+        if not active_tests:
+            return None
+
+        # Find any test that recommends promotion
+        for test_info in active_tests:
+            test_id = test_info.get("test_id")
+            if not test_id:
+                continue
+
+            # We can't await here (sync method), so just flag for action
+            return {
+                "action": "promote_strategy",
+                "test_id": test_id,
+                "shadow_name": test_info.get("shadow_name"),
+                "live_name": test_info.get("live_name"),
+                "reason": f"A/B test {test_id[:8]} has active shadow strategy ready for evaluation",
+                "hypothesis": "Shadow strategy may outperform live if promotion criteria are met",
+                "confidence": 0.5,
+                "alternatives": [
+                    {"action": "no_action", "reason": "Continue A/B test"},
+                ],
+                "source": "rules",
+            }
+
+        return None
+
+    def _check_rebalance(self, metrics: dict) -> Optional[dict]:
+        """Check if allocation rebalance is needed."""
+        active_strategies = self.strategy_manager.get_active_strategies()
+        if len(active_strategies) < 2:
+            return None
+
+        # Build strategy info for optimizer
+        per_health = metrics.get("per_strategy_health", {})
+        strategies_info = []
+        for name in active_strategies:
+            health = per_health.get(name, {})
+            strategies_info.append({
+                "name": name,
+                "health_score": health.get("health_score", 50.0),
+                "volatility": health.get("raw_metrics", {}).get("max_drawdown", 1.0),
+                "sharpe": health.get("raw_metrics", {}).get("sharpe_ratio", 0.0),
+                "status": "active",
+            })
+
+        target = self.allocation_optimizer.optimize(strategies_info)
+        current = self.strategy_manager.get_allocations()
+
+        actions = self.allocation_optimizer.get_rebalance_actions(current, target)
+
+        if actions:
+            return {
+                "action": "rebalance",
+                "rebalance_actions": actions,
+                "target_allocations": target,
+                "reason": f"Allocation drift detected: {len(actions)} strategies need rebalancing",
+                "hypothesis": "Rebalancing to optimal weights improves risk-adjusted returns",
+                "confidence": 0.6,
+                "alternatives": [
+                    {"action": "no_action", "reason": "Tolerate current allocation drift"},
+                ],
+                "source": "rules",
+            }
+
         return None
 
     async def _act(self, decision: dict) -> dict:
@@ -421,19 +552,56 @@ class OODAOrchestrator:
                 return {"executed": True, "action": action, "strategy": strategy_name}
 
             elif action == "adjust_allocation":
-                logger.warning("Allocation adjustment recommended for %s: %s",
-                               strategy_name, decision.get("reason"))
+                weight = decision.get("recommended_allocation", 0.5)
+                self.strategy_manager.update_allocation(strategy_name, weight)
                 return {
                     "executed": True, "action": action,
                     "strategy": strategy_name,
-                    "recommended_allocation": decision.get("recommended_allocation"),
-                    "note": "logged_recommendation",
+                    "new_allocation": weight,
                 }
 
             elif action == "adjust_risk":
-                # Log the recommendation — actual risk param changes are manual for now
                 logger.warning("Risk adjustment recommended: %s", decision.get("reason"))
                 return {"executed": True, "action": action, "note": "logged_recommendation"}
+
+            elif action == "promote_strategy":
+                if self.ab_test_manager:
+                    test_id = decision.get("test_id")
+                    if test_id:
+                        result = await self.ab_test_manager.check_test(test_id)
+                        if result.get("recommendation") == "promote":
+                            await self.ab_test_manager.promote(test_id)
+                            return {
+                                "executed": True, "action": action,
+                                "test_id": test_id,
+                                "shadow_name": decision.get("shadow_name"),
+                            }
+                        elif result.get("recommendation") == "reject":
+                            await self.ab_test_manager.reject(test_id)
+                            return {
+                                "executed": True, "action": "reject_strategy",
+                                "test_id": test_id,
+                                "note": "Shadow strategy did not meet promotion criteria",
+                            }
+                        else:
+                            return {
+                                "executed": True, "action": action,
+                                "note": "A/B test continuing, not yet ready for promotion",
+                            }
+                return {"executed": False, "reason": "No AB test manager or test_id"}
+
+            elif action == "rebalance":
+                rebalance_actions = decision.get("rebalance_actions", [])
+                for ra in rebalance_actions:
+                    name = ra["strategy_name"]
+                    target = ra["target_weight"]
+                    self.strategy_manager.update_allocation(name, target)
+
+                return {
+                    "executed": True, "action": action,
+                    "strategies_rebalanced": len(rebalance_actions),
+                    "target_allocations": decision.get("target_allocations", {}),
+                }
 
             else:
                 logger.warning("Unknown action: %s", action)

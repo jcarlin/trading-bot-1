@@ -269,3 +269,41 @@ wallet_analysis_duration_seconds = Histogram(
     'Time spent on wallet analysis',
     buckets=[1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0],
 )
+
+# ---------------------------------------------------------------------------
+# Phase 4: Full Autonomy
+# ---------------------------------------------------------------------------
+
+ai_decision_count = Counter(
+    'ai_decision_count',
+    'AI decision engine decisions made',
+    ['action', 'source'],
+)
+
+ai_decision_confidence = Histogram(
+    'ai_decision_confidence',
+    'AI decision confidence distribution',
+    buckets=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+)
+
+allocation_weight = Gauge(
+    'allocation_weight',
+    'Current allocation weight per strategy',
+    ['strategy_name'],
+)
+
+shadow_runner_pnl = Gauge(
+    'shadow_runner_pnl',
+    'Shadow runner cumulative PnL',
+    ['shadow_name'],
+)
+
+orchestrator_accuracy_pct = Gauge(
+    'orchestrator_accuracy_pct',
+    'Orchestrator decision accuracy percentage',
+)
+
+stress_test_status = Gauge(
+    'stress_test_status',
+    'Stress test pass status (1=all pass, 0=failures)',
+)

@@ -386,6 +386,36 @@ class RedisStore:
         return json.loads(data)
 
     # ------------------------------------------------------------------
+    # Allocation weights (Phase 4)
+    # ------------------------------------------------------------------
+
+    def set_allocation_weight(self, strategy_name: str, weight: float) -> None:
+        """Store allocation weight for a strategy."""
+        self._r.set(f"strategy:{strategy_name}:allocation", str(weight))
+
+    def get_allocation_weight(self, strategy_name: str) -> Optional[float]:
+        """Retrieve allocation weight for a strategy."""
+        raw = self._r.get(f"strategy:{strategy_name}:allocation")
+        if raw is None:
+            return None
+        return float(raw)
+
+    # ------------------------------------------------------------------
+    # Shadow runner state (Phase 4)
+    # ------------------------------------------------------------------
+
+    def set_shadow_state(self, shadow_name: str, state: dict) -> None:
+        """Store shadow runner state."""
+        self._r.set(f"shadow:{shadow_name}:state", json.dumps(state))
+
+    def get_shadow_state(self, shadow_name: str) -> Optional[dict]:
+        """Retrieve shadow runner state."""
+        raw = self._r.get(f"shadow:{shadow_name}:state")
+        if raw is None:
+            return None
+        return json.loads(raw)
+
+    # ------------------------------------------------------------------
     # Health
     # ------------------------------------------------------------------
 

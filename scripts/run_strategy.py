@@ -44,6 +44,21 @@ try:
 except ImportError:
     PHASE3_AVAILABLE = False
 
+# Phase 4 imports (optional — graceful if not available)
+try:
+    from ai.claude_client import ClaudeClient
+    from ai.decision_engine import AIDecisionEngine
+    from ai.report_writer import AIReportWriter
+    from orchestration.allocation_optimizer import AllocationOptimizer
+    from orchestration.ab_test_manager import ABTestManager
+    from orchestration.promotion_criteria import PromotionCriteria
+    from orchestration.decision_auditor import DecisionAuditor
+    from orchestration.orchestrator_scorecard import OrchestratorScorecard
+    from audit.system_auditor import SystemAuditor
+    PHASE4_AVAILABLE = True
+except ImportError:
+    PHASE4_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 RECONCILE_INTERVAL_S = 30
@@ -312,10 +327,23 @@ async def run(config: Config) -> None:
                 timescale_store, strategy_names)
             logger.info("Phase 3 correlation + portfolio tracking enabled")
 
+        # Phase 4: AI report writer (optional)
+        ai_report_writer = None
+        if PHASE4_AVAILABLE and config.get("ai.enabled", False):
+            try:
+                ai_cfg = config.get_section("ai")
+                claude_client = ClaudeClient(ai_cfg)
+                if config.get("ai.report_writer.enabled", False):
+                    ai_report_writer = AIReportWriter(claude_client)
+                    logger.info("Phase 4 AI report writer enabled")
+            except Exception:
+                logger.debug("AI report writer init failed, continuing without")
+
         report_gen = ReportGenerator(
             tracker, health_scorer, timescale_store, strategy_name,
             correlation_analyzer=correlation_analyzer,
             portfolio_tracker=portfolio_tracker_inst,
+            ai_report_writer=ai_report_writer,
         )
 
         # Backtest comparator (optional)
@@ -326,6 +354,54 @@ async def run(config: Config) -> None:
                 strategy, timescale_store, redis_store,
                 strategy_name,
                 config.get("strategy_runner.symbol", "BTC/USDC"))
+
+        # Phase 4 components (optional)
+        ai_decision_engine = None
+        allocation_optimizer = None
+        ab_test_manager = None
+        decision_auditor = None
+
+        if PHASE4_AVAILABLE and config.get("ai.enabled", False):
+            try:
+                ai_cfg = config.get_section("ai")
+                if not claude_client:
+                    claude_client = ClaudeClient(ai_cfg)
+
+                if config.get("ai.decision_engine.enabled", False):
+                    ai_decision_engine = AIDecisionEngine(
+                        claude_client,
+                        config.get_section("ai.decision_engine"))
+                    logger.info("Phase 4 AI decision engine enabled")
+            except Exception:
+                logger.debug("AI decision engine init failed, continuing without")
+
+        if PHASE4_AVAILABLE and config.get("allocation.enabled", False):
+            try:
+                allocation_optimizer = AllocationOptimizer(
+                    config.get_section("allocation"))
+                logger.info("Phase 4 allocation optimizer enabled")
+            except Exception:
+                logger.debug("Allocation optimizer init failed")
+
+        if PHASE4_AVAILABLE and config.get("ab_testing.enabled", False):
+            try:
+                promo_criteria = PromotionCriteria(
+                    config.get_section("ab_testing.promotion_criteria"))
+                ab_test_manager = ABTestManager(
+                    strategy_manager_instance, promo_criteria,
+                    timescale_store, redis_store, config)
+                logger.info("Phase 4 A/B test manager enabled")
+            except Exception:
+                logger.debug("A/B test manager init failed")
+
+        if PHASE4_AVAILABLE and config.get("meta_evaluation.enabled", False):
+            try:
+                decision_auditor = DecisionAuditor(
+                    timescale_store, redis_store,
+                    config.get_section("meta_evaluation"))
+                logger.info("Phase 4 decision auditor enabled")
+            except Exception:
+                logger.debug("Decision auditor init failed")
 
         orchestrator = OODAOrchestrator(
             strategy_manager=strategy_manager_instance,
@@ -340,6 +416,10 @@ async def run(config: Config) -> None:
             report_generator=report_gen,
             correlation_analyzer=correlation_analyzer,
             portfolio_tracker=portfolio_tracker_inst,
+            ai_decision_engine=ai_decision_engine,
+            allocation_optimizer=allocation_optimizer,
+            ab_test_manager=ab_test_manager,
+            decision_auditor=decision_auditor,
         )
 
         scheduler = EvaluationScheduler(

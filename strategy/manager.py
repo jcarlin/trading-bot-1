@@ -30,6 +30,7 @@ class StrategyManager:
         self._strategies: dict[str, dict] = {}
         self._stop_events: dict[str, asyncio.Event] = {}
         self._tasks: dict[str, asyncio.Task] = {}
+        self._allocations: dict[str, float] = {}
 
     async def start_strategy(self, name: str, strategy: LiveStrategy) -> None:
         """Start a new strategy.
@@ -233,6 +234,33 @@ class StrategyManager:
             name: info["status"]
             for name, info in self._strategies.items()
         }
+
+    def update_allocation(self, name: str, weight: float) -> None:
+        """Update allocation weight for a strategy.
+
+        Args:
+            name: Strategy name.
+            weight: Allocation weight (0.0 to 1.0).
+        """
+        weight = max(0.0, min(1.0, weight))
+        self._allocations[name] = weight
+
+        # Persist to Redis for StrategyRunner to read
+        try:
+            self.redis_store._r.set(
+                f"strategy:{name}:allocation", str(weight))
+        except Exception:
+            logger.exception("Failed to persist allocation for %s", name)
+
+        logger.info("Allocation updated: %s = %.4f", name, weight)
+
+    def get_allocation(self, name: str) -> float:
+        """Get allocation weight for a strategy. Defaults to 1.0."""
+        return self._allocations.get(name, 1.0)
+
+    def get_allocations(self) -> dict[str, float]:
+        """Get all allocation weights."""
+        return dict(self._allocations)
 
     async def stop_all(self) -> None:
         """Stop all active strategies."""

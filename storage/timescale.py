@@ -576,6 +576,30 @@ class TimescaleStore:
         return results
 
     # ------------------------------------------------------------------
+    # Decision queries by type (Phase 4)
+    # ------------------------------------------------------------------
+
+    def query_decisions_by_type(self, decision_type: str, start: datetime,
+                                end: datetime) -> list[dict]:
+        """Query decision log entries by decision type."""
+        sql = """
+            SELECT * FROM decision_log
+            WHERE decision_type = %s AND time >= %s AND time <= %s
+            ORDER BY time ASC
+        """
+        return self._query(sql, (decision_type, start, end))
+
+    def query_system_events_by_type(self, event_type: str, start: datetime,
+                                     end: datetime) -> list[dict]:
+        """Query system events by event type."""
+        sql = """
+            SELECT * FROM system_events
+            WHERE event_type = %s AND time >= %s AND time <= %s
+            ORDER BY time ASC
+        """
+        return self._query(sql, (event_type, start, end))
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
