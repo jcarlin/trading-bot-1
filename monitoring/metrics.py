@@ -149,3 +149,43 @@ api_errors_total = Counter(
     'API errors',
     ['exchange', 'error_type'],
 )
+
+# ---------------------------------------------------------------------------
+# Strategy Performance
+# ---------------------------------------------------------------------------
+
+strategy_sharpe_ratio = Gauge(
+    'strategy_sharpe_ratio',
+    'Strategy Sharpe ratio',
+    ['strategy_name', 'window'],
+)
+
+strategy_pnl_total = Gauge(
+    'strategy_pnl_total',
+    'Strategy total PnL',
+    ['strategy_name'],
+)
+
+strategy_max_drawdown = Gauge(
+    'strategy_max_drawdown',
+    'Strategy max drawdown percentage',
+    ['strategy_name', 'window'],
+)
+
+strategy_win_rate = Gauge(
+    'strategy_win_rate',
+    'Strategy win rate percentage',
+    ['strategy_name', 'window'],
+)
+
+strategy_profit_factor = Gauge(
+    'strategy_profit_factor',
+    'Strategy profit factor',
+    ['strategy_name', 'window'],
+)
+
+strategy_signal_count = Counter(
+    'strategy_signal_count',
+    'Strategy signals generated',
+    ['strategy_name', 'signal_type'],
+)

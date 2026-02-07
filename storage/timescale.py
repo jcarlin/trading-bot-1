@@ -206,6 +206,22 @@ class TimescaleStore:
             rate.get("oracle_price"), rate.get("open_interest"),
         ))
 
+    def query_funding_rates(self, symbol: str, start: datetime, end: datetime) -> list[dict]:
+        sql = """
+            SELECT * FROM funding_rates
+            WHERE symbol = %s AND time >= %s AND time <= %s
+            ORDER BY time ASC
+        """
+        return self._query(sql, (symbol, start, end))
+
+    def get_latest_funding_rate(self, symbol: str) -> Optional[dict]:
+        sql = """
+            SELECT * FROM funding_rates
+            WHERE symbol = %s
+            ORDER BY time DESC LIMIT 1
+        """
+        return self._query_one(sql, (symbol,))
+
     # ------------------------------------------------------------------
     # Orders
     # ------------------------------------------------------------------
@@ -229,6 +245,14 @@ class TimescaleStore:
         sql = "UPDATE orders SET status = %s WHERE order_id = %s"
         self._execute(sql, (status, order_id))
 
+    def query_orders_by_strategy(self, strategy_name: str, start: datetime, end: datetime) -> list[dict]:
+        sql = """
+            SELECT * FROM orders
+            WHERE strategy_name = %s
+            ORDER BY order_id ASC
+        """
+        return self._query(sql, (strategy_name,))
+
     # ------------------------------------------------------------------
     # Fills
     # ------------------------------------------------------------------
@@ -244,6 +268,15 @@ class TimescaleStore:
             fill["symbol"], fill["side"], fill["quantity"], fill["price"],
             fill.get("commission", 0.0), fill.get("closed_pnl", 0.0),
         ))
+
+    def query_fills_by_strategy(self, strategy_name: str, start: datetime, end: datetime) -> list[dict]:
+        sql = """
+            SELECT f.* FROM fills f
+            JOIN orders o ON f.order_id = o.order_id
+            WHERE o.strategy_name = %s AND f.time >= %s AND f.time <= %s
+            ORDER BY f.time ASC
+        """
+        return self._query(sql, (strategy_name, start, end))
 
     # ------------------------------------------------------------------
     # Decision log

@@ -203,6 +203,76 @@ class TestTimescaleStore(unittest.TestCase):
         result = self.store.get_latest_candle("BTC-USD", "1m")
         self.assertIsNone(result)
 
+    def test_query_funding_rates(self):
+        mock_dict_cursor = MagicMock()
+        mock_dict_cursor.fetchall.return_value = [
+            {"time": datetime(2024, 1, 1), "symbol": "BTC-USD",
+             "rate": 0.0001, "premium": 0.0},
+        ]
+        mock_dict_cursor.__enter__ = MagicMock(return_value=mock_dict_cursor)
+        mock_dict_cursor.__exit__ = MagicMock(return_value=False)
+        self.mock_conn.cursor.return_value = mock_dict_cursor
+
+        results = self.store.query_funding_rates(
+            "BTC-USD", datetime(2024, 1, 1), datetime(2024, 1, 2))
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["rate"], 0.0001)
+
+    def test_get_latest_funding_rate(self):
+        mock_dict_cursor = MagicMock()
+        mock_dict_cursor.fetchall.return_value = [
+            {"time": datetime(2024, 1, 1), "symbol": "BTC-USD",
+             "rate": 0.0002, "mark_price": 50000.0},
+        ]
+        mock_dict_cursor.__enter__ = MagicMock(return_value=mock_dict_cursor)
+        mock_dict_cursor.__exit__ = MagicMock(return_value=False)
+        self.mock_conn.cursor.return_value = mock_dict_cursor
+
+        result = self.store.get_latest_funding_rate("BTC-USD")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["rate"], 0.0002)
+
+    def test_get_latest_funding_rate_empty(self):
+        mock_dict_cursor = MagicMock()
+        mock_dict_cursor.fetchall.return_value = []
+        mock_dict_cursor.__enter__ = MagicMock(return_value=mock_dict_cursor)
+        mock_dict_cursor.__exit__ = MagicMock(return_value=False)
+        self.mock_conn.cursor.return_value = mock_dict_cursor
+
+        result = self.store.get_latest_funding_rate("BTC-USD")
+        self.assertIsNone(result)
+
+    def test_query_fills_by_strategy(self):
+        mock_dict_cursor = MagicMock()
+        mock_dict_cursor.fetchall.return_value = [
+            {"time": datetime(2024, 1, 1), "fill_id": "f-1",
+             "order_id": "ord-1", "symbol": "BTC-USD",
+             "side": "buy", "quantity": 1.0, "price": 100.0},
+        ]
+        mock_dict_cursor.__enter__ = MagicMock(return_value=mock_dict_cursor)
+        mock_dict_cursor.__exit__ = MagicMock(return_value=False)
+        self.mock_conn.cursor.return_value = mock_dict_cursor
+
+        results = self.store.query_fills_by_strategy(
+            "funding_rate_arb", datetime(2024, 1, 1), datetime(2024, 1, 2))
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["fill_id"], "f-1")
+
+    def test_query_orders_by_strategy(self):
+        mock_dict_cursor = MagicMock()
+        mock_dict_cursor.fetchall.return_value = [
+            {"order_id": "ord-1", "symbol": "BTC-USD",
+             "side": "buy", "strategy_name": "funding_rate_arb"},
+        ]
+        mock_dict_cursor.__enter__ = MagicMock(return_value=mock_dict_cursor)
+        mock_dict_cursor.__exit__ = MagicMock(return_value=False)
+        self.mock_conn.cursor.return_value = mock_dict_cursor
+
+        results = self.store.query_orders_by_strategy(
+            "funding_rate_arb", datetime(2024, 1, 1), datetime(2024, 1, 2))
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["strategy_name"], "funding_rate_arb")
+
     def test_close(self):
         self.store.close()
         self.mock_pool.closeall.assert_called_once()
