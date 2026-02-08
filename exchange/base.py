@@ -40,3 +40,25 @@ class BaseExchange(ABC):
     @abstractmethod
     def get_account_state(self) -> dict:
         """Return account state including equity, margin, and balances."""
+
+    async def place_limit_order(
+        self,
+        symbol: str,
+        side,
+        quantity: float,
+        price: float,
+        time_in_force: str = "GTC",
+    ) -> str:
+        """Place a limit order. Returns order ID.
+
+        Subclasses should override this for execution algorithm support.
+        """
+        raise NotImplementedError("place_limit_order not implemented")
+
+    async def get_order_status(self, order_id) -> dict:
+        """Get order status. Returns dict with at least 'status' key.
+
+        Status values: 'pending', 'filled', 'cancelled', 'partial'.
+        If filled, should also include 'fill_price' and 'fee'.
+        """
+        raise NotImplementedError("get_order_status not implemented")

@@ -309,6 +309,67 @@ class HyperliquidClient(BaseExchange):
             raise
 
     # ------------------------------------------------------------------
+    # Limit order / order status (for execution algorithms)
+    # ------------------------------------------------------------------
+
+    async def place_limit_order(
+        self,
+        symbol: str,
+        side,
+        quantity: float,
+        price: float,
+        time_in_force: str = "GTC",
+    ) -> str:
+        """Place a GTC limit order on Hyperliquid. Returns order ID."""
+        coin = HyperliquidNormalizer.symbol_to_coin(symbol)
+        is_buy = side == Side.BUY
+
+        tif_map = {"GTC": "Gtc", "IOC": "Ioc", "ALO": "Alo"}
+        tif = tif_map.get(time_in_force, "Gtc")
+        order_type_spec = {"limit": {"tif": tif}}
+
+        try:
+            result = self._exchange.order(
+                coin, is_buy, quantity, price, order_type_spec,
+            )
+            # Extract order ID from response
+            statuses = result.get("response", {}).get("data", {}).get("statuses", [])
+            if statuses:
+                oid = statuses[0].get("resting", {}).get("oid")
+                if oid is not None:
+                    return str(oid)
+            # Fallback — return a string representation
+            return str(result)
+        except Exception as exc:
+            logger.error("Error placing limit order on Hyperliquid: %s", exc)
+            raise
+
+    async def get_order_status(self, order_id) -> dict:
+        """Get order status from Hyperliquid.
+
+        TODO: Implement via info.order_status() when SDK supports it.
+        Currently checks open orders for the presence of the order.
+        """
+        try:
+            open_orders = self._info.open_orders(self._auth.address)
+            for o in open_orders:
+                if str(o.get("oid")) == str(order_id):
+                    return {
+                        "status": "pending",
+                        "order_id": str(order_id),
+                    }
+            # Not in open orders — assume filled
+            return {
+                "status": "filled",
+                "order_id": str(order_id),
+                "fill_price": 0.0,
+                "fee": 0.0,
+            }
+        except Exception as exc:
+            logger.error("Error fetching order status: %s", exc)
+            raise
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 

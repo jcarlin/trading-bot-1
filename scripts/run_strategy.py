@@ -59,6 +59,16 @@ try:
 except ImportError:
     PHASE4_AVAILABLE = False
 
+# Phase 5 imports (optional — graceful if not available)
+try:
+    from notifications.dispatcher import NotificationDispatcher
+    from notifications.telegram_bot import TelegramNotifier
+    from notifications.escalation import EscalationManager
+    from api.server import DashboardAPI
+    PHASE5_AVAILABLE = True
+except ImportError:
+    PHASE5_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 RECONCILE_INTERVAL_S = 30
@@ -212,6 +222,44 @@ async def run(config: Config) -> None:
     risk_controls = ExecutionRiskControls(config)
     logger.info("Risk controls initialised")
 
+    # Phase 5: Notification dispatcher (optional)
+    notification_dispatcher = None
+    dashboard_api = None
+    escalation_manager = None
+    if PHASE5_AVAILABLE and config.get("notifications.enabled", False):
+        try:
+            notif_cfg = config.get_section("notifications")
+            notification_dispatcher = NotificationDispatcher(notif_cfg)
+
+            # Telegram channel
+            if config.get("notifications.telegram.enabled", False):
+                telegram_cfg = config.get_section("notifications.telegram")
+                telegram = TelegramNotifier(telegram_cfg)
+                min_level = config.get("notifications.telegram.min_level", "info")
+                notification_dispatcher.add_channel(telegram, min_level=min_level)
+                logger.info("Phase 5 Telegram notifications enabled")
+
+            # Escalation manager
+            if config.get("escalation.enabled", False):
+                esc_cfg = config.get_section("escalation")
+                escalation_manager = EscalationManager(esc_cfg, notification_dispatcher)
+                logger.info("Phase 5 escalation manager enabled")
+
+            logger.info("Phase 5 notification dispatcher initialised")
+        except Exception:
+            logger.debug("Phase 5 notification init failed, continuing without")
+            notification_dispatcher = None
+
+    if PHASE5_AVAILABLE and config.get("dashboard.enabled", False):
+        try:
+            dash_cfg = config.get_section("dashboard")
+            dashboard_api = DashboardAPI(
+                redis_store, timescale_store, config=dash_cfg)
+            logger.info("Phase 5 dashboard API initialised")
+        except Exception:
+            logger.debug("Phase 5 dashboard init failed, continuing without")
+            dashboard_api = None
+
     # Execution engine (correct 6-arg constructor)
     engine = ExecutionEngine(
         exchange=exchange_client,
@@ -220,6 +268,7 @@ async def run(config: Config) -> None:
         timescale=timescale_store,
         redis=redis_store,
         config=config,
+        notification_dispatcher=notification_dispatcher,
     )
     logger.info("Execution engine initialised")
 
@@ -420,7 +469,12 @@ async def run(config: Config) -> None:
             allocation_optimizer=allocation_optimizer,
             ab_test_manager=ab_test_manager,
             decision_auditor=decision_auditor,
+            notification_dispatcher=notification_dispatcher,
         )
+
+        # Wire dashboard API strategy manager
+        if dashboard_api is not None:
+            dashboard_api.strategy_manager = strategy_manager_instance
 
         scheduler = EvaluationScheduler(
             orchestrator, config.get_section("evaluation"))
@@ -455,6 +509,12 @@ async def run(config: Config) -> None:
     if scheduler is not None:
         tasks.append(asyncio.create_task(scheduler.run(stop_event)))
         logger.info("Phase 2 evaluation scheduler started")
+
+    # Phase 5: Start dashboard API
+    if dashboard_api is not None:
+        dashboard_port = int(config.get("dashboard.port", 8080))
+        tasks.append(asyncio.create_task(dashboard_api.start(dashboard_port)))
+        logger.info("Phase 5 dashboard API starting on port %d", dashboard_port)
 
     logger.info("Strategy service running: %s on %s (mode=%s, strategies=%d, phase2=%s)",
                  strategy_name, config.get("strategy_runner.symbol"),

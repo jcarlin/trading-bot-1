@@ -416,6 +416,38 @@ class RedisStore:
         return json.loads(raw)
 
     # ------------------------------------------------------------------
+    # Walk-forward status (Phase 5)
+    # ------------------------------------------------------------------
+
+    def set_walk_forward_status(self, strategy_name: str,
+                                status_dict: dict) -> None:
+        """Store walk-forward optimization status for a strategy."""
+        key = f"walk_forward:{strategy_name}"
+        self._r.set(key, json.dumps(status_dict))
+
+    def get_walk_forward_status(self, strategy_name: str) -> Optional[dict]:
+        """Retrieve walk-forward optimization status."""
+        key = f"walk_forward:{strategy_name}"
+        raw = self._r.get(key)
+        if raw is None:
+            return None
+        return json.loads(raw)
+
+    # ------------------------------------------------------------------
+    # Volatility regime (Phase 5)
+    # ------------------------------------------------------------------
+
+    def set_vol_regime(self, symbol: str, regime: str) -> None:
+        """Store volatility regime classification for a symbol."""
+        key = f"vol_regime:{symbol}"
+        self._r.set(key, regime)
+
+    def get_vol_regime(self, symbol: str) -> Optional[str]:
+        """Retrieve volatility regime for a symbol."""
+        key = f"vol_regime:{symbol}"
+        return self._r.get(key)
+
+    # ------------------------------------------------------------------
     # Health
     # ------------------------------------------------------------------
 

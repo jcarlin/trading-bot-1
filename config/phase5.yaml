@@ -1,0 +1,306 @@
+# Trading Bot Phase 5 - Production Hardening
+# Extends Phase 4 with execution algorithms, notifications, dashboard,
+# walk-forward optimization, and volatility regime strategy.
+
+# Primary exchange: Hyperliquid
+exchange:
+  primary: hyperliquid
+  hyperliquid:
+    testnet: true
+    account_address: "${HL_ACCOUNT_ADDRESS}"
+    private_key: "${HL_PRIVATE_KEY}"
+    rate_limit_rpm: 1200
+  fallback: ccxt
+  ccxt:
+    name: binance
+    sandbox: true
+    api_key: "${EXCHANGE_API_KEY}"
+    api_secret: "${EXCHANGE_API_SECRET}"
+
+# Trading symbols
+symbols:
+  - BTC/USDC
+
+# Strategy runner config - multi-strategy mode
+strategy_runner:
+  enabled: true
+  mode: multi
+  strategy: funding_rate_arb
+  symbol: BTC/USDC
+  tick_interval_s: 60
+  funding_lookback_hours: 72
+  candle_lookback: 100
+  candle_timeframe: 1h
+  log_hold_every_n: 10
+  strategies:
+    - name: funding_rate_arb
+      symbol: BTC/USDC
+    - name: momentum_trend
+      symbol: BTC/USDC
+    - name: mean_reversion
+      symbol: BTC/USDC
+    - name: volatility_regime
+      symbol: BTC/USDC
+
+# Strategy parameters
+strategies:
+  funding_rate_arb:
+    entry_threshold: 0.0001
+    exit_threshold: 0.00005
+    max_hold_periods: 24
+    position_size_pct: 0.03
+    min_open_interest: 1000000
+    cooldown_periods: 2
+  momentum_trend:
+    ema_fast: 12
+    ema_slow: 26
+    rsi_period: 14
+    adx_period: 14
+    rsi_overbought: 70
+    rsi_oversold: 30
+    adx_threshold: 25
+    position_size_pct: 0.02
+  mean_reversion:
+    bb_period: 20
+    bb_std: 2.0
+    rsi_period: 14
+    rsi_entry_low: 30
+    rsi_entry_high: 70
+    position_size_pct: 0.02
+    regime_filter: true
+  volatility_regime:
+    atr_fast: 7
+    atr_slow: 21
+    bb_period: 20
+    bb_std: 2.0
+    kc_period: 20
+    kc_atr_mult: 1.5
+    expansion_threshold: 1.5
+    contraction_threshold: 0.7
+    rsi_period: 14
+    position_size_pct: 0.02
+
+# Execution risk controls (hard limits)
+execution_risk:
+  max_position_pct_per_asset: 0.05
+  max_portfolio_exposure_pct: 1.50
+  max_strategy_drawdown_pct: 0.05
+  max_portfolio_drawdown_pct: 0.15
+  max_single_trade_loss_pct: 0.01
+  min_cash_reserve_pct: 0.20
+
+# Risk settings
+risk:
+  position_sizing: percent_equity
+  max_position_pct: 0.03
+  max_drawdown_pct: 0.20
+  commission_pct: 0.001
+
+# Performance tracking
+performance:
+  update_interval_s: 300
+  windows: [1, 4, 24, 168, 720]
+
+# =====================================================================
+# Phase 2: Self-Evaluation Loop
+# =====================================================================
+
+evaluation:
+  enabled: true
+  hourly_interval: 3600
+  daily_interval: 86400
+  weekly_interval: 604800
+  monthly_interval: 2592000
+
+health_scoring:
+  weights:
+    sharpe: 0.25
+    sortino: 0.15
+    max_drawdown: 0.20
+    win_rate: 0.15
+    profit_factor: 0.15
+    calmar: 0.10
+  pause_threshold: 20
+  drawdown_pause_threshold: 5.0
+
+regime_classification:
+  sma_fast_period: 20
+  sma_slow_period: 50
+  atr_period: 14
+  volatility_threshold: 2.0
+
+backtest_comparison:
+  enabled: true
+  lookback_hours: 168
+  decay_pause_threshold: 50.0
+
+orchestrator:
+  symbol: BTC/USDC
+  strategy_name: funding_rate_arb
+  decay_pause_threshold: 50.0
+  health_pause_threshold: 20
+  correlation_limit: 0.8
+  portfolio_dd_limit: 15.0
+
+# =====================================================================
+# Phase 3: Multi-Strategy & Intelligence
+# =====================================================================
+
+portfolio:
+  correlation_window_hours: 168
+  benchmark_symbols:
+    - BTC/USDC
+    - ETH/USDC
+
+wallet_intelligence:
+  enabled: true
+  discovery_interval_s: 3600
+  min_score_threshold: 60.0
+  max_wallets: 50
+  analysis_depth: standard
+
+# =====================================================================
+# Phase 4: Full Autonomy
+# =====================================================================
+
+# AI Decision Engine (Claude-powered)
+ai:
+  enabled: true
+  model: claude-sonnet-4-5-20250929
+  max_tokens: 1024
+  temperature: 0.3
+  timeout: 30
+  api_key: "${ANTHROPIC_API_KEY}"
+  decision_engine:
+    enabled: true
+    min_confidence: 0.6
+  strategy_analyst:
+    enabled: true
+  report_writer:
+    enabled: true
+
+# Allocation Optimizer
+allocation:
+  enabled: true
+  mode: health_weighted
+  min_allocation: 0.05
+  max_allocation: 0.60
+  step: 0.05
+  cash_reserve: 0.20
+  rebalance_threshold: 0.05
+
+# A/B Testing Framework
+ab_testing:
+  enabled: true
+  promotion_criteria:
+    min_duration_hours: 168
+    min_trades: 20
+    min_sharpe: 0.5
+    min_win_rate: 45.0
+    max_dd: 5.0
+    min_improvement_pct: 10.0
+    significance_level: 0.05
+
+# Meta-Evaluation (Decision Auditor + Scorecard)
+meta_evaluation:
+  enabled: true
+  lookback_days: 30
+  evaluation_window_hours: 24
+
+# System Audit
+audit:
+  enabled: true
+  lookback_days: 30
+  auto_report_interval_s: 604800
+
+# Stress Testing
+stress_testing:
+  enabled: true
+  run_on_startup: false
+
+# =====================================================================
+# Phase 5: Production Hardening
+# =====================================================================
+
+# Execution algorithms
+execution_algorithms:
+  enabled: true
+  default_algo: adaptive_limit
+  small_order_threshold_pct: 1.0
+  medium_order_threshold_pct: 5.0
+
+# Notifications
+notifications:
+  enabled: true
+  telegram:
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+    rate_limit_per_minute: 20
+  escalation:
+    drawdown_threshold_pct: 10.0
+    loss_multiplier: 3.0
+
+# Dashboard API
+dashboard:
+  enabled: true
+  port: 8080
+
+# Walk-forward optimization
+walk_forward:
+  n_splits: 5
+  is_ratio: 0.7
+  min_oos_bars: 100
+  metric: sharpe_ratio
+  decay_threshold: 50.0
+
+# Data ingestion settings
+ingestion:
+  orderbook:
+    enabled: true
+    snapshot_interval_s: 5
+    depth_levels: 5
+  trades:
+    enabled: true
+  funding:
+    enabled: true
+    poll_interval_s: 60
+  candles:
+    enabled: true
+    timeframes:
+      - 1m
+      - 5m
+      - 15m
+      - 1h
+      - 4h
+    backfill_on_start: true
+
+# Storage configuration
+storage:
+  timescaledb:
+    host: "${POSTGRES_HOST:-localhost}"
+    port: 5432
+    dbname: "${POSTGRES_DB:-trading}"
+    user: "${POSTGRES_USER:-trading}"
+    password: "${POSTGRES_PASSWORD:-trading}"
+  redis:
+    host: "${REDIS_HOST:-localhost}"
+    port: 6379
+    db: 0
+    password: "${REDIS_PASSWORD:-}"
+
+# Monitoring
+monitoring:
+  metrics_port: 8001
+  strategy_metrics_port: 8004
+  health_check_interval_s: 30
+
+# Reconciliation
+reconciliation:
+  interval_s: 30
+  auto_correct: false
+
+# Logging
+logging:
+  level: INFO
+  file: strategy_runner.log
+  format: json

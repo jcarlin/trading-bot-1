@@ -600,6 +600,58 @@ class TimescaleStore:
         return self._query(sql, (event_type, start, end))
 
     # ------------------------------------------------------------------
+    # Walk-forward results (stored in system_events)
+    # ------------------------------------------------------------------
+
+    def insert_walk_forward_result(self, strategy_name: str, params: dict,
+                                   is_metrics: dict, oos_metrics: dict,
+                                   decay_pct: float, is_valid: bool) -> None:
+        """Store a walk-forward optimization result as a system event."""
+        self.insert_system_event({
+            "time": datetime.utcnow(),
+            "event_type": "walk_forward_result",
+            "severity": "info",
+            "component": "walk_forward_optimizer",
+            "message": (f"WF result for {strategy_name}: "
+                        f"decay={decay_pct:.1f}% valid={is_valid}"),
+            "details": {
+                "strategy_name": strategy_name,
+                "params": params,
+                "is_metrics": is_metrics,
+                "oos_metrics": oos_metrics,
+                "decay_pct": decay_pct,
+                "is_valid": is_valid,
+            },
+        })
+
+    def query_walk_forward_results(self, strategy_name: str,
+                                   limit: int = 10) -> list[dict]:
+        """Query walk-forward results from system events."""
+        sql = """
+            SELECT time, details FROM system_events
+            WHERE event_type = 'walk_forward_result'
+            ORDER BY time DESC
+            LIMIT %s
+        """
+        rows = self._query(sql, (limit,))
+        results = []
+        for row in rows:
+            details = row.get("details", {})
+            if isinstance(details, str):
+                details = json.loads(details)
+            if details.get("strategy_name") == strategy_name:
+                results.append({
+                    "time": row["time"],
+                    **details,
+                })
+        return results
+
+    def get_latest_walk_forward(self, strategy_name: str) -> Optional[dict]:
+        """Get the most recent walk-forward result for a strategy."""
+        results = self.query_walk_forward_results(strategy_name, limit=20)
+        return results[0] if results else None
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 

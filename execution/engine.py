@@ -10,6 +10,9 @@ from typing import Optional
 from core.models import Fill, Order, Position, Signal
 from core.types import OrderType, Side, SignalType
 from monitoring.metrics import (
+    algo_execution_count,
+    algo_fill_rate,
+    algo_slippage_bps,
     fill_latency_seconds,
     orders_filled_total,
     orders_placed_total,
@@ -38,6 +41,8 @@ class ExecutionEngine:
         timescale,
         redis,
         config,
+        algorithm_selector=None,
+        notification_dispatcher=None,
     ):
         self.exchange = exchange
         self.risk_manager = risk_manager
@@ -45,6 +50,8 @@ class ExecutionEngine:
         self.timescale = timescale
         self.redis = redis
         self.config = config
+        self.algorithm_selector = algorithm_selector
+        self.notification_dispatcher = notification_dispatcher
 
         self.reconciler = PositionReconciler(exchange, redis, timescale, config)
         self.kill_switch = KillSwitch(exchange, redis, timescale, config)
@@ -155,8 +162,20 @@ class ExecutionEngine:
                 await self.flatten_all()
             return None
 
-        # 7. Execute order
-        fill = await self.execute_order(order, strategy_name)
+        # 7. Execute order (via algorithm if selected, otherwise market)
+        fill = None
+        if self.algorithm_selector is not None:
+            market_state = self._build_market_state(symbol)
+            algo_name, algo = self.algorithm_selector.select(
+                order, market_state, signal.metadata
+            )
+            if algo is not None:
+                fill = await self.execute_with_algorithm(
+                    order, algo, algo_name, strategy_name
+                )
+
+        if fill is None:
+            fill = await self.execute_order(order, strategy_name)
 
         # 8. Log decision
         self._log_decision(
@@ -176,6 +195,137 @@ class ExecutionEngine:
         )
 
         return fill
+
+    # ------------------------------------------------------------------
+    # Algorithm-based execution
+    # ------------------------------------------------------------------
+
+    async def execute_with_algorithm(
+        self, order: Order, algorithm, algo_name: str, strategy_name: str = ""
+    ) -> Optional[Fill]:
+        """Execute an order using an execution algorithm.
+
+        Returns the first Fill from the algorithm's child orders,
+        or None if the algorithm produced no fills.
+        """
+        algo_config = {}
+        if self.algorithm_selector:
+            algo_config = self.algorithm_selector.get_algo_config(algo_name)
+
+        algo_execution_count.labels(
+            algo_name=algo_name, symbol=order.symbol
+        ).inc()
+
+        submit_time = time.monotonic()
+        try:
+            child_fills = await algorithm.execute(order, self.exchange, algo_config)
+        except Exception:
+            logger.exception(
+                "Algorithm %s failed for order %s", algo_name, order.order_id
+            )
+            return None
+
+        if not child_fills:
+            return None
+
+        fill_time = time.monotonic()
+
+        # Compute VWAP across all child fills
+        total_qty = sum(f.get("quantity", 0) for f in child_fills if f)
+        total_cost = sum(
+            f.get("price", 0) * f.get("quantity", 0) for f in child_fills if f
+        )
+        total_fee = sum(f.get("fee", 0) for f in child_fills if f)
+
+        if total_qty <= 0:
+            return None
+
+        vwap = total_cost / total_qty
+
+        # Metrics
+        fill_rate = total_qty / order.quantity * 100 if order.quantity > 0 else 0
+        algo_fill_rate.labels(algo_name=algo_name).set(fill_rate)
+
+        if order.price and order.price > 0:
+            slippage_improvement = (
+                abs(order.price - vwap) / order.price * 10000
+            )
+            algo_slippage_bps.labels(algo_name=algo_name).observe(
+                slippage_improvement
+            )
+
+        # Build a Fill object from the aggregated result
+        fill = Fill(
+            order_id=order.order_id,
+            symbol=order.symbol,
+            side=order.side,
+            quantity=total_qty,
+            fill_price=vwap,
+            timestamp=datetime.now(timezone.utc),
+            commission=total_fee,
+        )
+
+        # Record in DB
+        latency = fill_time - submit_time
+        self.timescale.update_order_status(order.order_id, "filled")
+        try:
+            self.timescale.insert_fill({
+                "time": fill.timestamp,
+                "fill_id": str(uuid.uuid4()),
+                "order_id": fill.order_id,
+                "symbol": fill.symbol,
+                "side": fill.side.value,
+                "quantity": fill.quantity,
+                "price": fill.fill_price,
+                "commission": fill.commission,
+            })
+        except Exception:
+            logger.exception("Failed to insert algo fill to DB")
+
+        orders_filled_total.labels(
+            symbol=fill.symbol, side=fill.side.value
+        ).inc()
+        fill_latency_seconds.labels(symbol=fill.symbol).observe(latency)
+
+        logger.info(
+            "Algo %s filled: %s %s %s qty=%s vwap=%s (%d children, %.3fs)",
+            algo_name, fill.order_id, fill.side.value, fill.symbol,
+            fill.quantity, vwap, len(child_fills), latency,
+        )
+
+        # Dispatch trade notification
+        if self.notification_dispatcher:
+            try:
+                import asyncio
+                asyncio.ensure_future(self.notification_dispatcher.dispatch(
+                    message=f"Algo fill ({algo_name}): {fill.side.value} {fill.symbol} qty={fill.quantity} vwap={vwap:.4f}",
+                    level="trade",
+                    event_type="algo_fill",
+                    metadata={"order_id": fill.order_id, "algo": algo_name,
+                              "symbol": fill.symbol, "strategy": strategy_name},
+                ))
+            except Exception:
+                logger.debug("Failed to dispatch algo trade notification")
+
+        return fill
+
+    def _build_market_state(self, symbol: str) -> dict:
+        """Gather market state for algorithm selection."""
+        state = {}
+        try:
+            acct = self.redis.get_account_state()
+            if acct:
+                state["regime"] = acct.get("regime", "")
+        except Exception:
+            pass
+        try:
+            ticker = self.exchange.get_ticker(symbol)
+            state["mid"] = ticker.get("mid", 0)
+        except Exception:
+            pass
+        # avg_volume could be loaded from Redis/TimescaleDB; default to 0
+        state.setdefault("avg_volume", 0)
+        return state
 
     # ------------------------------------------------------------------
     # Order execution
@@ -278,6 +428,20 @@ class ExecutionEngine:
             fill.quantity, fill.fill_price, latency,
         )
 
+        # Dispatch trade notification
+        if self.notification_dispatcher:
+            try:
+                import asyncio
+                asyncio.ensure_future(self.notification_dispatcher.dispatch(
+                    message=f"Fill: {fill.side.value} {fill.symbol} qty={fill.quantity} @ {fill.fill_price}",
+                    level="trade",
+                    event_type="fill",
+                    metadata={"order_id": fill.order_id, "symbol": fill.symbol,
+                              "side": fill.side.value, "strategy": strategy_name},
+                ))
+            except Exception:
+                logger.debug("Failed to dispatch trade notification")
+
         return fill
 
     # ------------------------------------------------------------------
@@ -286,6 +450,15 @@ class ExecutionEngine:
 
     async def flatten_all(self) -> None:
         """Emergency: activate the kill switch to flatten everything."""
+        if self.notification_dispatcher:
+            try:
+                await self.notification_dispatcher.dispatch(
+                    message="EMERGENCY FLATTEN: Kill switch activated by ExecutionEngine",
+                    level="critical",
+                    event_type="flatten_all",
+                )
+            except Exception:
+                logger.debug("Failed to dispatch flatten notification")
         await self.kill_switch.activate("ExecutionEngine triggered emergency flatten")
 
     # ------------------------------------------------------------------

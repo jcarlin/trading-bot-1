@@ -27,7 +27,8 @@ class OODAOrchestrator:
                  execution_tracker=None, report_generator=None,
                  correlation_analyzer=None, portfolio_tracker=None,
                  ai_decision_engine=None, allocation_optimizer=None,
-                 ab_test_manager=None, decision_auditor=None):
+                 ab_test_manager=None, decision_auditor=None,
+                 notification_dispatcher=None):
         self.strategy_manager = strategy_manager
         self.health_scorer = health_scorer
         self.regime_classifier = regime_classifier
@@ -49,6 +50,9 @@ class OODAOrchestrator:
         self.ab_test_manager = ab_test_manager
         self.decision_auditor = decision_auditor
 
+        # Phase 5 components
+        self.notification_dispatcher = notification_dispatcher
+
         # Config
         self.symbol = self.config.get("symbol", "BTC/USDC")
         self.strategy_name = self.config.get("strategy_name", "funding_rate_arb")
@@ -64,6 +68,7 @@ class OODAOrchestrator:
             "momentum": ["trending_up", "trending_down"],
             "mean_reversion": ["ranging"],
             "funding_rate_arb": ["trending_up", "trending_down", "ranging"],
+            "volatility_regime": ["volatile", "trending_up", "trending_down"],
         }
 
     async def evaluate(self, checkpoint_type: str) -> dict:
@@ -545,11 +550,31 @@ class OODAOrchestrator:
         try:
             if action == "pause_strategy":
                 await self.strategy_manager.pause_strategy(strategy_name)
-                return {"executed": True, "action": action, "strategy": strategy_name}
+                outcome = {"executed": True, "action": action, "strategy": strategy_name}
+                if self.notification_dispatcher:
+                    try:
+                        await self.notification_dispatcher.dispatch(
+                            message=f"OODA action: pause {strategy_name} — {decision.get('reason', '')}",
+                            level="warning",
+                            event_type="ooda_action",
+                        )
+                    except Exception:
+                        logger.debug("Failed to dispatch OODA notification")
+                return outcome
 
             elif action == "resume_strategy":
                 await self.strategy_manager.resume_strategy(strategy_name)
-                return {"executed": True, "action": action, "strategy": strategy_name}
+                outcome = {"executed": True, "action": action, "strategy": strategy_name}
+                if self.notification_dispatcher:
+                    try:
+                        await self.notification_dispatcher.dispatch(
+                            message=f"OODA action: resume {strategy_name}",
+                            level="info",
+                            event_type="ooda_action",
+                        )
+                    except Exception:
+                        logger.debug("Failed to dispatch OODA notification")
+                return outcome
 
             elif action == "adjust_allocation":
                 weight = decision.get("recommended_allocation", 0.5)
@@ -562,7 +587,17 @@ class OODAOrchestrator:
 
             elif action == "adjust_risk":
                 logger.warning("Risk adjustment recommended: %s", decision.get("reason"))
-                return {"executed": True, "action": action, "note": "logged_recommendation"}
+                outcome = {"executed": True, "action": action, "note": "logged_recommendation"}
+                if self.notification_dispatcher:
+                    try:
+                        await self.notification_dispatcher.dispatch(
+                            message=f"OODA action: {action} on {strategy_name} — {decision.get('reason', '')}",
+                            level="warning",
+                            event_type="ooda_action",
+                        )
+                    except Exception:
+                        logger.debug("Failed to dispatch OODA notification")
+                return outcome
 
             elif action == "promote_strategy":
                 if self.ab_test_manager:

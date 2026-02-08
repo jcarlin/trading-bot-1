@@ -13,10 +13,12 @@ logger = logging.getLogger(__name__)
 class KillSwitch:
     """Emergency mechanism to cancel orders, flatten positions, and halt the system."""
 
-    def __init__(self, exchange, redis_store, timescale_store, config):
+    def __init__(self, exchange, redis_store, timescale_store, config,
+                 notification_dispatcher=None):
         self.exchange = exchange
         self.redis = redis_store
         self.timescale = timescale_store
+        self.notification_dispatcher = notification_dispatcher
 
         # Symbols to scan when cancelling orders / flattening
         symbols = (
@@ -113,6 +115,18 @@ class KillSwitch:
         # 5. Update Prometheus metrics
         circuit_breaker_status.set(1)
         kill_switch_activations_total.inc()
+
+        # 6. Dispatch critical notification
+        if self.notification_dispatcher:
+            try:
+                await self.notification_dispatcher.dispatch(
+                    message=f"KILL SWITCH ACTIVATED: {reason}",
+                    level="critical",
+                    event_type="kill_switch",
+                    metadata={"reason": reason},
+                )
+            except Exception:
+                logger.debug("Failed to dispatch kill switch notification")
 
     # ------------------------------------------------------------------
     # Deactivate

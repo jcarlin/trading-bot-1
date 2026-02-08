@@ -307,3 +307,76 @@ stress_test_status = Gauge(
     'stress_test_status',
     'Stress test pass status (1=all pass, 0=failures)',
 )
+
+# ---------------------------------------------------------------------------
+# Phase 5: Execution Algorithms
+# ---------------------------------------------------------------------------
+
+algo_execution_count = Counter(
+    'algo_execution_count',
+    'Execution algorithm invocations',
+    ['algo_name', 'symbol'],
+)
+
+algo_slippage_bps = Histogram(
+    'algo_slippage_improvement_bps',
+    'Slippage improvement from execution algorithms in basis points',
+    ['algo_name'],
+    buckets=[0.5, 1, 2, 5, 10, 25, 50, 100],
+)
+
+algo_fill_rate = Gauge(
+    'algo_fill_rate_pct',
+    'Execution algorithm fill rate percentage',
+    ['algo_name'],
+)
+
+# ---------------------------------------------------------------------------
+# Phase 5: Walk-Forward & Volatility
+# ---------------------------------------------------------------------------
+
+walk_forward_decay_pct = Gauge(
+    'walk_forward_decay_pct',
+    'Walk-forward IS->OOS performance decay percentage',
+    ['strategy_name'],
+)
+
+walk_forward_is_valid = Gauge(
+    'walk_forward_is_valid',
+    'Walk-forward validation status (1=valid, 0=invalid)',
+    ['strategy_name'],
+)
+
+vol_regime_indicator = Gauge(
+    'vol_regime_indicator',
+    'Volatility regime indicator (1=low, 2=normal, 3=high, 4=expanding, 5=contracting)',
+    ['symbol'],
+)
+
+# ---------------------------------------------------------------------------
+# Phase 5: Notifications & Dashboard
+# ---------------------------------------------------------------------------
+
+notifications_sent_total = Counter(
+    'notifications_sent_total',
+    'Notifications sent',
+    ['channel', 'level'],
+)
+
+notifications_failed_total = Counter(
+    'notifications_failed_total',
+    'Notifications failed',
+    ['channel'],
+)
+
+escalation_triggered_total = Counter(
+    'escalation_triggered_total',
+    'Escalations triggered',
+    ['trigger_type'],
+)
+
+api_request_count = Counter(
+    'api_request_count',
+    'API requests',
+    ['endpoint'],
+)
