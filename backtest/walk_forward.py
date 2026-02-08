@@ -25,7 +25,8 @@ class WalkForwardOptimizer:
     Splits data into N IS/OOS windows. Optimizes params on IS, validates on OOS.
     Reports aggregated OOS performance as realistic expected performance.
 
-    Config: n_splits=5, is_ratio=0.7, min_oos_bars=100, metric="sharpe_ratio"
+    Config: n_splits=5, is_ratio=0.7, min_oos_bars=100, metric="sharpe_ratio",
+            use_optuna=False, optuna_config=None
     """
 
     def __init__(self, backtest_engine, risk_manager, config: dict):
@@ -35,6 +36,8 @@ class WalkForwardOptimizer:
         self.is_ratio = config.get("is_ratio", 0.7)
         self.min_oos_bars = config.get("min_oos_bars", 100)
         self.decay_threshold = config.get("decay_threshold", 50.0)
+        self.use_optuna = config.get("use_optuna", False)
+        self.optuna_config = config.get("optuna_config", None)
 
     def run(self, df: pd.DataFrame, strategy_class, param_grid: dict,
             metric: str = "sharpe_ratio") -> WalkForwardResult:
@@ -166,6 +169,46 @@ class WalkForwardOptimizer:
 
     def _optimize_window(self, is_data: pd.DataFrame, strategy_class,
                          param_combos: list[dict], metric: str) -> tuple[dict, float]:
+        """Optimize on in-sample data, return best params and score.
+
+        If use_optuna=True and optuna is available, delegates to OptunaOptimizer.
+        Otherwise falls back to grid search.
+        """
+        if self.use_optuna:
+            return self._optimize_window_optuna(is_data, strategy_class, metric)
+
+        return self._optimize_window_grid(is_data, strategy_class, param_combos, metric)
+
+    def _optimize_window_optuna(self, is_data: pd.DataFrame, strategy_class,
+                                metric: str) -> tuple[dict, float]:
+        """Optimize using Optuna on in-sample data."""
+        try:
+            from backtest.optuna_optimizer import OptunaOptimizer
+        except ImportError:
+            logger.warning("OptunaOptimizer not available, falling back to grid")
+            return {}, float("-inf")
+
+        optuna_cfg = self.optuna_config or {}
+        optimizer = OptunaOptimizer(self.backtest_engine, self.risk_manager, optuna_cfg)
+
+        if not optimizer.is_available():
+            logger.warning("optuna not installed, falling back to grid")
+            return {}, float("-inf")
+
+        # Use the optuna_config's param_space if provided
+        param_space = optuna_cfg.get("param_space", {})
+        if not param_space:
+            logger.warning("No param_space in optuna_config, cannot optimize")
+            return {}, float("-inf")
+
+        result = optimizer.optimize(is_data, strategy_class, param_space, metric)
+        if result is None:
+            return {}, float("-inf")
+
+        return result.best_params, result.best_score
+
+    def _optimize_window_grid(self, is_data: pd.DataFrame, strategy_class,
+                              param_combos: list[dict], metric: str) -> tuple[dict, float]:
         """Grid search on in-sample data, return best params and score."""
         best_params = param_combos[0] if param_combos else {}
         best_score = float("-inf")

@@ -19,13 +19,15 @@ class StrategyRunner:
     """Live execution loop connecting a LiveStrategy to the ExecutionEngine."""
 
     def __init__(self, strategy: LiveStrategy, execution_engine,
-                 timescale, redis, config, decision_logger: StrategyDecisionLogger):
+                 timescale, redis, config, decision_logger: StrategyDecisionLogger,
+                 signal_aggregator=None):
         self.strategy = strategy
         self.execution_engine = execution_engine
         self.timescale = timescale
         self.redis = redis
         self.config = config
         self.decision_logger = decision_logger
+        self.signal_aggregator = signal_aggregator
 
         self.symbol = config.get("strategy_runner.symbol", "BTC/USDC")
         self.tick_interval = int(config.get("strategy_runner.tick_interval_s", 60))
@@ -77,6 +79,11 @@ class StrategyRunner:
 
         # 2. Generate signal
         signal = self.strategy.on_tick(market_state)
+
+        # Record signal for meta-strategy aggregation
+        if self.signal_aggregator:
+            self.signal_aggregator.record_signal(
+                self._strategy_name, signal, market_state, 50.0)
 
         # 3. Process signal
         if signal.signal_type != SignalType.HOLD:

@@ -239,3 +239,29 @@ class WalletIntelligenceCoordinator:
         )
 
         return result
+
+    def get_recommended_for_monitoring(self, top_n: int = 20) -> list[dict]:
+        """Return top-N wallets by score for real-time monitoring.
+
+        Pulls from Redis cache first; falls back to in-memory.
+
+        Args:
+            top_n: Maximum wallets to return.
+
+        Returns:
+            List of dicts with address, score, grade.
+        """
+        # Try Redis first
+        if self.redis_store:
+            try:
+                top_wallets = self.redis_store.get_top_wallets()
+                if top_wallets:
+                    recommended = [
+                        w for w in top_wallets
+                        if w.get("score", 0) >= self.min_score
+                    ]
+                    return recommended[:top_n]
+            except Exception:
+                logger.debug("Failed to get top wallets from Redis")
+
+        return []

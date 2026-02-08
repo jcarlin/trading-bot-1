@@ -69,6 +69,9 @@ class OODAOrchestrator:
             "mean_reversion": ["ranging"],
             "funding_rate_arb": ["trending_up", "trending_down", "ranging"],
             "volatility_regime": ["volatile", "trending_up", "trending_down"],
+            "voting_ensemble": ["trending_up", "trending_down", "ranging", "volatile"],
+            "stacking_ensemble": ["trending_up", "trending_down", "ranging", "volatile"],
+            "smart_money": ["trending_up", "trending_down", "ranging", "volatile"],
         }
 
     async def evaluate(self, checkpoint_type: str) -> dict:

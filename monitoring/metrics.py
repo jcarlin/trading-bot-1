@@ -380,3 +380,62 @@ api_request_count = Counter(
     'API requests',
     ['endpoint'],
 )
+
+# ---------------------------------------------------------------------------
+# Phase 6: Meta-Strategy
+# ---------------------------------------------------------------------------
+
+meta_strategy_agreement_pct = Gauge(
+    'meta_strategy_agreement_pct',
+    'Meta-strategy agreement percentage',
+    ['strategy_name'],
+)
+
+meta_strategy_confidence = Gauge(
+    'meta_strategy_confidence',
+    'Meta-strategy prediction confidence',
+    ['strategy_name'],
+)
+
+meta_strategy_sub_signal_count = Gauge(
+    'meta_strategy_sub_signal_count',
+    'Number of sub-strategy signals available',
+    ['strategy_name'],
+)
+
+# ---------------------------------------------------------------------------
+# Phase 6: ML Regime Classification
+# ---------------------------------------------------------------------------
+
+ml_regime_confidence = Gauge(
+    'ml_regime_confidence',
+    'ML regime classifier confidence',
+    ['regime'],
+)
+
+ml_regime_agreement = Gauge(
+    'ml_regime_agreement',
+    'Rule-ML regime classifier agreement (1=agree, 0=disagree)',
+    [],
+)
+
+# ---------------------------------------------------------------------------
+# Phase 6: Wallet Monitoring & Smart Money
+# ---------------------------------------------------------------------------
+
+wallet_monitor_active_count = Gauge(
+    'wallet_monitor_active_count',
+    'Number of actively monitored wallets',
+)
+
+wallet_signal_detected_total = Counter(
+    'wallet_signal_detected_total',
+    'Total wallet signals detected',
+    ['signal_type'],
+)
+
+smart_money_agreement_count = Gauge(
+    'smart_money_agreement_count',
+    'Number of wallets agreeing on direction',
+    ['direction'],
+)

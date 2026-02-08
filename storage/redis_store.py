@@ -448,6 +448,35 @@ class RedisStore:
         return self._r.get(key)
 
     # ------------------------------------------------------------------
+    # Wallet monitoring (Phase 6)
+    # ------------------------------------------------------------------
+
+    def set_wallet_positions(self, address: str, positions: list[dict]) -> None:
+        """Store current positions for a monitored wallet."""
+        key = f"wallet_positions:{address}"
+        self._r.set(key, json.dumps(positions))
+
+    def get_wallet_positions(self, address: str) -> list[dict]:
+        """Retrieve last known positions for a monitored wallet."""
+        key = f"wallet_positions:{address}"
+        raw = self._r.get(key)
+        if raw is None:
+            return []
+        return json.loads(raw)
+
+    def add_wallet_signal(self, signal_dict: dict) -> None:
+        """Append a wallet signal to the recent signals list."""
+        key = "wallet:signals:recent"
+        self._r.lpush(key, json.dumps(signal_dict))
+        self._r.ltrim(key, 0, 199)  # Keep last 200
+
+    def get_recent_wallet_signals(self, limit: int = 50) -> list[dict]:
+        """Retrieve recent wallet signals."""
+        key = "wallet:signals:recent"
+        raw_list = self._r.lrange(key, 0, limit - 1)
+        return [json.loads(item) for item in raw_list]
+
+    # ------------------------------------------------------------------
     # Health
     # ------------------------------------------------------------------
 
