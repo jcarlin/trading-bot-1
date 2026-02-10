@@ -652,6 +652,105 @@ class TimescaleStore:
         return results[0] if results else None
 
     # ------------------------------------------------------------------
+    # Phase 7: Order Flow & Intelligence
+    # ------------------------------------------------------------------
+
+    def insert_order_flow_snapshot(self, snapshot: dict) -> None:
+        """Store an order flow snapshot as a system event."""
+        self.insert_system_event({
+            "time": snapshot.get("time", datetime.utcnow()),
+            "event_type": "order_flow_snapshot",
+            "severity": "info",
+            "component": "order_flow_analyzer",
+            "message": (f"Order flow: imbalance={snapshot.get('imbalance_ratio', 0):.3f} "
+                        f"cvd={snapshot.get('cvd', 0):.2f}"),
+            "details": snapshot,
+        })
+
+    def query_order_flow_snapshots(self, limit: int = 100) -> list[dict]:
+        """Query recent order flow snapshots."""
+        sql = """
+            SELECT time, details FROM system_events
+            WHERE event_type = 'order_flow_snapshot'
+            ORDER BY time DESC
+            LIMIT %s
+        """
+        rows = self._query(sql, (limit,))
+        results = []
+        for row in rows:
+            details = row.get("details", {})
+            if isinstance(details, str):
+                details = json.loads(details)
+            results.append({"time": row["time"], **details})
+        return results
+
+    def insert_liquidation_event(self, event: dict) -> None:
+        """Store a liquidation event."""
+        self.insert_system_event({
+            "time": event.get("time", datetime.utcnow()),
+            "event_type": "liquidation_event",
+            "severity": "info",
+            "component": "liquidation_aggregator",
+            "message": (f"Liquidation: {event.get('side', 'unknown')} "
+                        f"vol={event.get('volume', 0):.2f} "
+                        f"on {event.get('exchange', 'unknown')}"),
+            "details": event,
+        })
+
+    def insert_trader_ranking_snapshot(self, snapshot: dict) -> None:
+        """Store a trader ranking snapshot."""
+        self.insert_system_event({
+            "time": snapshot.get("time", datetime.utcnow()),
+            "event_type": "trader_ranking_snapshot",
+            "severity": "info",
+            "component": "trader_ranking",
+            "message": (f"Rankings: top={snapshot.get('top_count', 0)} "
+                        f"bottom={snapshot.get('bottom_count', 0)}"),
+            "details": snapshot,
+        })
+
+    def insert_hlp_sentiment(self, sentiment: dict) -> None:
+        """Store an HLP sentiment snapshot."""
+        self.insert_system_event({
+            "time": sentiment.get("time", datetime.utcnow()),
+            "event_type": "hlp_sentiment",
+            "severity": "info",
+            "component": "hlp_sentiment_tracker",
+            "message": (f"HLP sentiment: {sentiment.get('hlp_direction', 'neutral')} "
+                        f"net={sentiment.get('net_notional', 0):.2f}"),
+            "details": sentiment,
+        })
+
+    def query_hlp_sentiment(self, limit: int = 100) -> list[dict]:
+        """Query recent HLP sentiment snapshots."""
+        sql = """
+            SELECT time, details FROM system_events
+            WHERE event_type = 'hlp_sentiment'
+            ORDER BY time DESC
+            LIMIT %s
+        """
+        rows = self._query(sql, (limit,))
+        results = []
+        for row in rows:
+            details = row.get("details", {})
+            if isinstance(details, str):
+                details = json.loads(details)
+            results.append({"time": row["time"], **details})
+        return results
+
+    def insert_strategy_extraction(self, extraction: dict) -> None:
+        """Store a strategy extraction result."""
+        self.insert_system_event({
+            "time": extraction.get("time", datetime.utcnow()),
+            "event_type": "strategy_extraction",
+            "severity": "info",
+            "component": "strategy_extractor",
+            "message": (f"Extracted: {extraction.get('name', 'unknown')} "
+                        f"confidence={extraction.get('confidence', 0):.2f}"),
+            "details": extraction,
+        })
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 

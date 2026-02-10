@@ -439,3 +439,97 @@ smart_money_agreement_count = Gauge(
     'Number of wallets agreeing on direction',
     ['direction'],
 )
+
+# ---------------------------------------------------------------------------
+# Phase 7: Order Flow & Liquidations
+# ---------------------------------------------------------------------------
+
+order_flow_imbalance_ratio = Gauge(
+    'order_flow_imbalance_ratio',
+    'Order flow buy/sell imbalance ratio',
+    ['symbol'],
+)
+
+order_flow_cvd = Gauge(
+    'order_flow_cvd',
+    'Cumulative volume delta',
+    ['symbol'],
+)
+
+large_trade_detected_total = Counter(
+    'large_trade_detected_total',
+    'Large trades detected',
+    ['symbol', 'side'],
+)
+
+liquidation_cascade_active = Gauge(
+    'liquidation_cascade_active',
+    'Liquidation cascade active (1=yes, 0=no)',
+    ['symbol'],
+)
+
+liquidation_imbalance_ratio = Gauge(
+    'liquidation_imbalance_ratio',
+    'Liquidation long/short imbalance ratio',
+    ['symbol'],
+)
+
+cross_exchange_liquidation_count = Gauge(
+    'cross_exchange_liquidation_count',
+    'Liquidation count per exchange',
+    ['exchange'],
+)
+
+# ---------------------------------------------------------------------------
+# Phase 7: Trader Rankings & HLP Sentiment
+# ---------------------------------------------------------------------------
+
+trader_top_consensus_pct = Gauge(
+    'trader_top_consensus_pct',
+    'Top trader consensus agreement percentage',
+    ['direction'],
+)
+
+trader_bottom_bias_pct = Gauge(
+    'trader_bottom_bias_pct',
+    'Bottom trader bias percentage',
+    ['direction'],
+)
+
+contrarian_signal_confidence = Gauge(
+    'contrarian_signal_confidence',
+    'Contrarian signal confidence from bottom trader fade',
+)
+
+hlp_net_exposure = Gauge(
+    'hlp_net_exposure',
+    'HLP vault net notional exposure',
+)
+
+hlp_sentiment_direction = Gauge(
+    'hlp_sentiment_direction',
+    'HLP sentiment direction (1=long, -1=short, 0=neutral)',
+)
+
+# ---------------------------------------------------------------------------
+# Phase 7: LLM Provider & Strategy Extraction
+# ---------------------------------------------------------------------------
+
+llm_requests_total = Counter(
+    'llm_requests_total',
+    'LLM API requests',
+    ['provider', 'status'],
+)
+
+llm_latency_seconds = Histogram(
+    'llm_latency_seconds',
+    'LLM API request latency',
+    ['provider'],
+    buckets=[0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
+)
+
+strategy_extraction_count = Counter(
+    'strategy_extraction_count',
+    'Strategy extraction attempts',
+    ['source', 'status'],
+)

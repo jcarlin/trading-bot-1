@@ -87,3 +87,7 @@ class ClaudeClient:
         except (json.JSONDecodeError, IndexError):
             logger.warning("Failed to parse Claude JSON response")
             return None
+
+    def get_provider_name(self) -> str:
+        """Return provider name for compatibility with LLMProvider interface."""
+        return "anthropic"

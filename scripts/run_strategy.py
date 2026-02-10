@@ -17,6 +17,9 @@ from pathlib import Path
 # Ensure project root is on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from prometheus_client import start_http_server
 
 from core.config import Config
@@ -68,6 +71,20 @@ try:
     PHASE5_AVAILABLE = True
 except ImportError:
     PHASE5_AVAILABLE = False
+
+# Phase 7 imports (optional — graceful if not available)
+try:
+    from ai.llm_provider import LLMProvider
+    from ai.model_factory import ModelFactory
+    from intelligence.strategy_extractor import StrategyExtractor
+    from intelligence.trader_ranking import TraderRankingSystem
+    from intelligence.hlp_sentiment import HLPSentimentTracker
+    from data.multi_exchange import MultiExchangeAggregator
+    from data.liquidation_aggregator import LiquidationAggregator
+    from data.order_flow import OrderFlowAnalyzer
+    PHASE7_AVAILABLE = True
+except ImportError:
+    PHASE7_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -208,12 +225,13 @@ async def run(config: Config) -> None:
 
     # Exchange client
     exchange_cfg = config.get_section("exchange")
-    try:
-        from exchange.hyperliquid import HyperliquidClient
-        exchange_client = HyperliquidClient(exchange_cfg)
-    except ImportError:
-        from exchange.hyperliquid.client import HyperliquidClient
-        exchange_client = HyperliquidClient(exchange_cfg)
+    hl_cfg = exchange_cfg.get('hyperliquid', {})
+    from exchange.hyperliquid import HyperliquidClient
+    exchange_client = HyperliquidClient(
+        account_address=hl_cfg.get('account_address', ''),
+        private_key=hl_cfg.get('private_key', ''),
+        testnet=hl_cfg.get('testnet', True),
+    )
     logger.info("Exchange client initialised")
 
     # Risk controls
@@ -452,6 +470,45 @@ async def run(config: Config) -> None:
             except Exception:
                 logger.debug("Decision auditor init failed")
 
+        # Phase 7 components (optional)
+        order_flow_analyzer = None
+        liquidation_aggregator = None
+        hlp_sentiment_tracker = None
+        trader_ranking_system = None
+
+        if PHASE7_AVAILABLE:
+            if config.get("order_flow.enabled", False):
+                try:
+                    of_cfg = config.get_section("order_flow")
+                    order_flow_analyzer = OrderFlowAnalyzer(of_cfg)
+                    logger.info("Phase 7 order flow analyzer enabled")
+                except Exception:
+                    logger.debug("Order flow analyzer init failed, continuing without")
+
+            if config.get("multi_exchange.enabled", False):
+                try:
+                    liq_cfg = config.get_section("multi_exchange.liquidation")
+                    liquidation_aggregator = LiquidationAggregator(liq_cfg)
+                    logger.info("Phase 7 liquidation aggregator enabled")
+                except Exception:
+                    logger.debug("Liquidation aggregator init failed, continuing without")
+
+            if config.get("hlp_sentiment.enabled", False):
+                try:
+                    hlp_cfg = config.get_section("hlp_sentiment")
+                    hlp_sentiment_tracker = HLPSentimentTracker(config=hlp_cfg)
+                    logger.info("Phase 7 HLP sentiment tracker enabled")
+                except Exception:
+                    logger.debug("HLP sentiment tracker init failed, continuing without")
+
+            if config.get("trader_ranking.enabled", False):
+                try:
+                    tr_cfg = config.get_section("trader_ranking")
+                    trader_ranking_system = TraderRankingSystem(config=tr_cfg)
+                    logger.info("Phase 7 trader ranking system enabled")
+                except Exception:
+                    logger.debug("Trader ranking system init failed, continuing without")
+
         orchestrator = OODAOrchestrator(
             strategy_manager=strategy_manager_instance,
             health_scorer=health_scorer,
@@ -470,6 +527,10 @@ async def run(config: Config) -> None:
             ab_test_manager=ab_test_manager,
             decision_auditor=decision_auditor,
             notification_dispatcher=notification_dispatcher,
+            order_flow_analyzer=order_flow_analyzer,
+            liquidation_aggregator=liquidation_aggregator,
+            hlp_sentiment=hlp_sentiment_tracker,
+            trader_ranking=trader_ranking_system,
         )
 
         # Wire dashboard API strategy manager

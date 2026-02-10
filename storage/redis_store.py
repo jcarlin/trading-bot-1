@@ -477,6 +477,62 @@ class RedisStore:
         return [json.loads(item) for item in raw_list]
 
     # ------------------------------------------------------------------
+    # Phase 7: Order Flow & Intelligence
+    # ------------------------------------------------------------------
+
+    def set_order_flow(self, symbol: str, data: dict) -> None:
+        """Store order flow snapshot with 5min TTL."""
+        key = f"order_flow:{symbol}"
+        self._r.set(key, json.dumps(data), ex=300)
+
+    def get_order_flow(self, symbol: str) -> dict:
+        """Retrieve latest order flow snapshot."""
+        key = f"order_flow:{symbol}"
+        raw = self._r.get(key)
+        if raw is None:
+            return {}
+        return json.loads(raw)
+
+    def set_liquidation_state(self, symbol: str, data: dict) -> None:
+        """Store liquidation state with 5min TTL."""
+        key = f"liquidation_state:{symbol}"
+        self._r.set(key, json.dumps(data), ex=300)
+
+    def get_liquidation_state(self, symbol: str) -> dict:
+        """Retrieve latest liquidation state."""
+        key = f"liquidation_state:{symbol}"
+        raw = self._r.get(key)
+        if raw is None:
+            return {}
+        return json.loads(raw)
+
+    def set_hlp_sentiment(self, data: dict) -> None:
+        """Store latest HLP sentiment snapshot."""
+        key = "hlp:sentiment:latest"
+        self._r.set(key, json.dumps(data))
+
+    def get_hlp_sentiment(self) -> dict:
+        """Retrieve latest HLP sentiment."""
+        key = "hlp:sentiment:latest"
+        raw = self._r.get(key)
+        if raw is None:
+            return {}
+        return json.loads(raw)
+
+    def set_trader_rankings(self, data: dict) -> None:
+        """Store latest trader rankings."""
+        key = "trader:rankings:latest"
+        self._r.set(key, json.dumps(data))
+
+    def get_trader_rankings(self) -> dict:
+        """Retrieve latest trader rankings."""
+        key = "trader:rankings:latest"
+        raw = self._r.get(key)
+        if raw is None:
+            return {}
+        return json.loads(raw)
+
+    # ------------------------------------------------------------------
     # Health
     # ------------------------------------------------------------------
 

@@ -28,7 +28,9 @@ class OODAOrchestrator:
                  correlation_analyzer=None, portfolio_tracker=None,
                  ai_decision_engine=None, allocation_optimizer=None,
                  ab_test_manager=None, decision_auditor=None,
-                 notification_dispatcher=None):
+                 notification_dispatcher=None,
+                 order_flow_analyzer=None, liquidation_aggregator=None,
+                 hlp_sentiment=None, trader_ranking=None):
         self.strategy_manager = strategy_manager
         self.health_scorer = health_scorer
         self.regime_classifier = regime_classifier
@@ -53,6 +55,12 @@ class OODAOrchestrator:
         # Phase 5 components
         self.notification_dispatcher = notification_dispatcher
 
+        # Phase 7 components
+        self.order_flow_analyzer = order_flow_analyzer
+        self.liquidation_aggregator = liquidation_aggregator
+        self.hlp_sentiment = hlp_sentiment
+        self.trader_ranking = trader_ranking
+
         # Config
         self.symbol = self.config.get("symbol", "BTC/USDC")
         self.strategy_name = self.config.get("strategy_name", "funding_rate_arb")
@@ -72,6 +80,8 @@ class OODAOrchestrator:
             "voting_ensemble": ["trending_up", "trending_down", "ranging", "volatile"],
             "stacking_ensemble": ["trending_up", "trending_down", "ranging", "volatile"],
             "smart_money": ["trending_up", "trending_down", "ranging", "volatile"],
+            "order_flow_imbalance": ["trending_up", "trending_down", "volatile"],
+            "correlation_divergence": ["ranging", "volatile"],
         }
 
     async def evaluate(self, checkpoint_type: str) -> dict:
@@ -202,6 +212,50 @@ class OODAOrchestrator:
                 metrics["portfolio"] = portfolio
             except Exception:
                 logger.debug("Failed to compute portfolio metrics")
+
+        # Phase 7: Order flow metrics
+        if self.order_flow_analyzer:
+            try:
+                of_imbalance = self.order_flow_analyzer.get_imbalance()
+                of_cvd = self.order_flow_analyzer.get_cumulative_delta()
+                metrics["order_flow"] = {
+                    "imbalance": of_imbalance,
+                    "cvd": of_cvd,
+                }
+            except Exception:
+                logger.debug("Failed to collect order flow metrics")
+
+        # Phase 7: Liquidation metrics
+        if self.liquidation_aggregator:
+            try:
+                liq_summary = self.liquidation_aggregator.get_summary()
+                cascade = self.liquidation_aggregator.detect_cascade()
+                metrics["liquidations"] = {
+                    "summary": liq_summary,
+                    "cascade": cascade,
+                }
+            except Exception:
+                logger.debug("Failed to collect liquidation metrics")
+
+        # Phase 7: HLP sentiment
+        if self.hlp_sentiment:
+            try:
+                sentiment = self.hlp_sentiment.get_current_sentiment()
+                metrics["hlp_sentiment"] = sentiment
+            except Exception:
+                logger.debug("Failed to collect HLP sentiment")
+
+        # Phase 7: Trader ranking signals
+        if self.trader_ranking:
+            try:
+                smart_money = self.trader_ranking.get_smart_money_consensus()
+                contrarian = self.trader_ranking.get_contrarian_signal()
+                metrics["trader_ranking"] = {
+                    "smart_money": smart_money,
+                    "contrarian": contrarian,
+                }
+            except Exception:
+                logger.debug("Failed to collect trader ranking metrics")
 
         # Multi-strategy: per-strategy health scores
         active_strategies = self.strategy_manager.get_active_strategies()
